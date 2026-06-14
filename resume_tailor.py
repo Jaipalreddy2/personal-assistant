@@ -17,43 +17,25 @@ config        = dotenv_values(Path.home() / ".env")
 ANTHROPIC_KEY = config.get("ANTHROPIC_API_KEY")
 
 RESUME = """
-Akshay Mittapally | akshayreddy2022@gmail.com | +1 (913) 940 6869 | Irvine, CA
+Jaipal Kasi Reddy | kasireddyjaipal02@gmail.com | TODO: phone | TODO: city/country
 
 EXPERIENCE
 
-Software Engineer — Luxoft USA Inc., California (Mar 2025 – Present)
-• Developed microservices for Capital Group's CRD platform using .NET Core and Apache Kafka
-• Built CI/CD pipelines with Harness, Docker, and Kubernetes (EKS) on AWS
-• Integrated Datadog and Splunk for monitoring and alerting across distributed services
-• Automated infrastructure provisioning using Terraform reducing deployment time by 40%
+TODO: Job Title — Company Name (Mon YYYY – Present)
+• TODO: bullet point describing what you built/did
+• TODO: bullet point with tech used and impact
+• TODO: bullet point with another achievement
 
-Software Engineer — Elevance Health (Aug 2024 – Feb 2025, Contract)
-• Built HIPAA-compliant patient management system covering records, scheduling, and billing using ASP.NET Core and Angular
-• Deployed Web APIs on AWS Elastic Beanstalk integrated with RDS (SQL Server), S3, and Cognito
-• Implemented role-based access control and HIPAA-compliant authorization via AWS Cognito and .NET identity management
-• Automated deployment pipelines via AWS CodePipeline; containerized services with Docker
-
-Full Stack .NET Developer — Delta Air Lines (Feb 2024 – May 2024, Internship)
-• Built passenger reservation system handling booking, seat selection, and payment flows using React, TypeScript
-• Integrated Amadeus GDS API for real-time flight data, Stripe and PayPal for payments, AWS Cognito/OAuth2 for auth
-• Improved performance using ElastiCache (Redis); automated deployments via AWS CodePipeline and CloudFormation
-
-Software Engineer — Cognizant (Feb 2022 – Dec 2022)
-• Developed enterprise web applications using ASP.NET MVC and Web API with SQL Server
-• Collaborated in Agile/Scrum teams delivering bi-weekly sprints
+TODO: Previous Job Title — Company Name (Mon YYYY – Mon YYYY)
+• TODO: bullet point
+• TODO: bullet point
 
 EDUCATION
-MS Computer Science — University of Central Missouri (2023–2024), GPA 3.5
+TODO: Degree — University Name (YYYY–YYYY)
 
 SKILLS
-Backend: ASP.NET Core, .NET, C#, RESTful APIs, Microservices
-Frontend: React, Angular, TypeScript
-Cloud: AWS (EC2, RDS, S3, EKS, Lambda, Elastic Beanstalk, Cognito, CodePipeline)
-DevOps: Docker, Kubernetes, Terraform, Harness, CI/CD
-Messaging: Apache Kafka
-Monitoring: Datadog, Splunk
-Databases: SQL Server, ElastiCache (Redis)
-Other: Python, OAuth2, HIPAA compliance, Agile/Scrum
+TODO: Category: skill1, skill2, skill3
+TODO: Category: skill1, skill2, skill3
 """
 
 
@@ -102,14 +84,14 @@ def tailor_resume_with_claude(job_title, company, job_description):
     """Ask Claude to rewrite resume bullets to match the job."""
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
 
-    prompt = f"""You are a professional resume writer. Tailor Akshay's resume for this specific job.
+    prompt = f"""You are a professional resume writer. Tailor Jaipal's resume for this specific job.
 
 JOB: {job_title} at {company}
 
 JOB DESCRIPTION:
 {job_description if job_description else "No description available — tailor based on job title."}
 
-AKSHAY'S CURRENT RESUME:
+JAIPAL'S CURRENT RESUME:
 {RESUME}
 
 INSTRUCTIONS:
