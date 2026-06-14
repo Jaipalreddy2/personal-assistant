@@ -10,6 +10,7 @@ import time
 import json
 import os
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from dotenv import dotenv_values
@@ -22,10 +23,10 @@ import subprocess
 # Runtime paths — resolved dynamically so the repo works on any machine
 BASE       = Path(__file__).parent
 PYTHON     = sys.executable
-STOCKS_DIR = Path.home() / "Akshay" / "stockspredictor"
+STOCKS_DIR = Path.home() / "stockspredictor"
 
 # Prevent duplicate instances
-PIDFILE = Path("/tmp/akshay_bot.pid")
+PIDFILE = Path(tempfile.gettempdir()) / "akshay_bot.pid"
 if PIDFILE.exists():
     old_pid = int(PIDFILE.read_text().strip())
     try:
