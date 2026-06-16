@@ -22,7 +22,7 @@ def get_service():
 
 # Recurring Mon-Fri rule
 WEEKDAYS = "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"
-TZ       = "America/Los_Angeles"
+TZ       = "Europe/Dublin"
 
 # Start from next Monday June 8, 2026
 events = [

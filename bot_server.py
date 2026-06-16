@@ -236,8 +236,8 @@ def execute_tool(name, params):
             add_meet = params.get("add_meet", bool(attendees))
             event = {
                 "summary": params["title"],
-                "start": {"dateTime": f"{date}T{params['start_time']}:00", "timeZone": "America/Los_Angeles"},
-                "end":   {"dateTime": f"{date}T{params['end_time']}:00",   "timeZone": "America/Los_Angeles"},
+                "start": {"dateTime": f"{date}T{params['start_time']}:00", "timeZone": "Europe/Dublin"},
+                "end":   {"dateTime": f"{date}T{params['end_time']}:00",   "timeZone": "Europe/Dublin"},
             }
             if params.get("location"):
                 event["location"] = params["location"]

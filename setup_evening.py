@@ -21,7 +21,7 @@ def get_service():
 
 
 WEEKDAYS = "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"
-TZ       = "America/Los_Angeles"
+TZ       = "Europe/Dublin"
 
 events = [
     {
