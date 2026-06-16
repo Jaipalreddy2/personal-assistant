@@ -22,17 +22,18 @@ TELEGRAM_TOKEN = config.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT  = config.get("TELEGRAM_CHAT_ID")
 TELEGRAM_API   = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
-# TODO: update these keywords to match your target roles
 JOB_KEYWORDS = [
-    "TODO: e.g. Cloud Engineer",
-    "TODO: e.g. DevOps Engineer",
-    "TODO: e.g. Software Engineer",
+    "DevOps Engineer",
+    "Cloud DevOps Engineer",
+    "Site Reliability Engineer",
+    "Platform Engineer",
+    "Cloud Engineer",
 ]
 
 LINKEDIN_EMAIL    = config.get("LINKEDIN_EMAIL")
 LINKEDIN_PASSWORD = config.get("LINKEDIN_PASSWORD")
 
-LOCATION     = "TODO: your city, e.g. Dublin, Ireland"
+LOCATION     = "Dublin, Ireland"
 DB_PATH      = Path(__file__).parent / "applied_jobs.db"
 SESSION_FILE = Path(__file__).parent / "linkedin_session.json"
 

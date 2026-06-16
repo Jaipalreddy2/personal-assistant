@@ -56,7 +56,7 @@ SYSTEM_PROMPT = """You are Bunty, Jaipal Kasi Reddy's personal AI assistant. Her
 PERSONAL:
 - Full name: Jaipal Kasi Reddy
 - Email: kasireddyjaipal02@gmail.com | Phone: TODO: add your phone number
-- Location: TODO: add your city/country
+- Location: Dublin, Ireland
 - Education: TODO: add your degree, university, and years (e.g. MSc Cloud Computing, National College of Ireland, 2024–2025)
 - LinkedIn: TODO: add your LinkedIn URL
 
