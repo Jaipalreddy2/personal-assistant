@@ -11,11 +11,12 @@ TOKEN    = config.get("TELEGRAM_BOT_TOKEN")
 GROUP_ID = config.get("TELEGRAM_GROUP_ID")
 
 TOPICS = {
-    "chat":   int(config.get("TELEGRAM_TOPIC_CHAT",   11)),
-    "emails": int(config.get("TELEGRAM_TOPIC_EMAILS", 12)),
-    "jobs":   int(config.get("TELEGRAM_TOPIC_JOBS",   13)),
-    "stocks": int(config.get("TELEGRAM_TOPIC_STOCKS", 15)),
-    "daily":  int(config.get("TELEGRAM_TOPIC_DAILY",  14)),
+    "chat":   int(config.get("TELEGRAM_TOPIC_CHAT",  2)),
+    "jobs":   int(config.get("TELEGRAM_TOPIC_JOBS",  3)),
+    # Emails, stocks, daily all route to Jobs topic
+    "emails": int(config.get("TELEGRAM_TOPIC_EMAILS", 3)),
+    "stocks": int(config.get("TELEGRAM_TOPIC_STOCKS", 3)),
+    "daily":  int(config.get("TELEGRAM_TOPIC_DAILY",  3)),
 }
 
 
