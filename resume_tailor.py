@@ -15,10 +15,13 @@ import asyncio
 
 config        = dotenv_values(Path.home() / ".env")
 ANTHROPIC_KEY = config.get("ANTHROPIC_API_KEY")
+_PHONE        = config.get("PHONE", "")
+_BSC          = config.get("DEGREE_BSC", "")
+_MSC          = config.get("DEGREE_MSC", "")
 
-RESUME = """
+RESUME = f"""
 Jaipal Kasi Reddy
-kasireddyjaipal02@gmail.com | Dublin, Ireland
+kasireddyjaipal02@gmail.com | {_PHONE} | Dublin, Ireland
 linkedin.com/in/jaipal-kasireddy-375a5227b | github.com/Jaipalreddy2
 
 PROFILE
@@ -28,8 +31,8 @@ roles in Cloud Engineering, DevOps, and Software Development. Available for part
 during studies and full-time from February 2027.
 
 EDUCATION
-MSc Cloud Computing — National College of Ireland (NCI), Dublin  (2025 – 2026, expected)
-TODO: BSc Degree — University Name, Country  (YYYY – YYYY)
+{_MSC}
+{_BSC}
 
 PROJECTS
 Personal AI Assistant Bot  (Python · Telegram · Playwright · Claude AI · LinkedIn API)
