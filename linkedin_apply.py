@@ -688,9 +688,26 @@ async def auto_apply():
         await page.wait_for_timeout(2000)
 
         if "login" in page.url or "authwall" in page.url:
-            send_telegram("⚠️ LinkedIn session expired — re-login needed.")
+            print("Session expired, auto-relogging in...")
             await browser.close()
-            return
+            await login_linkedin_visible()
+            # Reopen headless browser with fresh session
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"]
+            )
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800},
+            )
+            page = await context.new_page()
+            await load_session(context)
+            await page.goto("https://www.linkedin.com/feed")
+            await page.wait_for_timeout(2000)
+            if "login" in page.url or "authwall" in page.url:
+                send_telegram("LinkedIn re-login failed — please run `python3 linkedin_login_once.py` manually.")
+                await browser.close()
+                return
 
         # Phase 1: find all new jobs
         new_jobs = []
