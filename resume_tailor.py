@@ -111,10 +111,10 @@ Return ONLY the tailored resume text, no commentary."""
     return response.content[0].text
 
 
-def tailor_for_job(job, session_file):
+async def tailor_for_job(job, session_file):
     """Full pipeline: fetch JD → tailor → return text."""
     print(f"Tailoring resume for {job['title']} @ {job['company']}...")
-    jd = asyncio.run(fetch_job_description(job["url"], session_file))
+    jd = await fetch_job_description(job["url"], session_file)
     tailored = tailor_resume_with_claude(job["title"], job["company"], jd)
     return tailored
 
@@ -128,5 +128,5 @@ if __name__ == "__main__":
         "url": sys.argv[3] if len(sys.argv) > 3 else ""
     }
     session = Path(__file__).parent / "linkedin_session.json"
-    result = tailor_for_job(job, str(session))
+    result = asyncio.run(tailor_for_job(job, str(session)))
     print(result)

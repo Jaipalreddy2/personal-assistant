@@ -471,7 +471,8 @@ async def find_and_connect_recruiter(page, job):
                         note_text = (
                             f"Hi {name.split()[0]}, I recently applied for the "
                             f"{job['title']} role at {job['company']}. "
-                            f"I'm a software developer with experience in .NET Core, AWS, and DevOps. "
+                            f"I'm a DevOps/Cloud Engineer based in Dublin with hands-on experience in "
+                            f"AWS, Docker, Kubernetes, CI/CD, and infrastructure automation. "
                             f"Would love to connect!"
                         )
                         await note_field.fill(note_text[:300])
@@ -597,7 +598,7 @@ async def apply_approved(from_find=False):
             # 1. Tailor resume before applying
             try:
                 from resume_tailor import tailor_for_job
-                tailored = tailor_for_job(job, str(SESSION_FILE))
+                tailored = await tailor_for_job(job, str(SESSION_FILE))
                 if tailored:
                     # Save to DB
                     conn = sqlite3.connect(DB_PATH)
