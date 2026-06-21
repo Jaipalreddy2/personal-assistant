@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 LinkedIn Easy Apply Bot
-- Finds Easy Apply jobs matching Akshay's profile
+- Finds Easy Apply jobs matching Jaipal's profile
 - Sends job details to Telegram for approval
 - Applies to approved jobs automatically
 """
@@ -11,10 +11,17 @@ import json
 import sqlite3
 import requests
 import time
+import sys
+import io
 from datetime import datetime
 from pathlib import Path
 from dotenv import dotenv_values
 from playwright.async_api import async_playwright
+
+# Force UTF-8 output on Windows to support emoji in print statements
+if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 config = dotenv_values(Path.home() / ".env")
 
@@ -23,12 +30,46 @@ TELEGRAM_CHAT  = config.get("TELEGRAM_CHAT_ID")
 TELEGRAM_API   = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
 JOB_KEYWORDS = [
+    "Junior DevOps Engineer",
+    "Graduate DevOps Engineer",
+    "Junior Cloud Engineer",
+    "Graduate Software Engineer",
+    "Junior Software Engineer",
+    "Entry Level DevOps",
+    "Graduate Cloud Engineer",
+    "Junior Platform Engineer",
+    "Associate DevOps Engineer",
     "DevOps Engineer",
-    "Cloud DevOps Engineer",
-    "Site Reliability Engineer",
-    "Platform Engineer",
     "Cloud Engineer",
 ]
+
+# Keywords that indicate a role is suitable for freshers/graduates
+FRESHER_KEYWORDS = [
+    "junior", "graduate", "entry level", "entry-level", "fresher",
+    "associate", "trainee", "apprentice", "0-2 years", "0-1 year",
+    "1-2 years", "new grad", "recent graduate", "no experience required",
+    "early career",
+]
+
+# Keywords that indicate a senior role — skip these
+SENIOR_KEYWORDS = [
+    "senior", "lead", "principal", "staff", "head of", "director",
+    "manager", "architect", "vp ", "vice president", "5+ years",
+    "7+ years", "8+ years", "10+ years",
+]
+
+
+def is_fresher_role(title):
+    """Return True if the job title looks suitable for a fresher/graduate."""
+    title_lower = title.lower()
+    # Skip if clearly senior
+    if any(kw in title_lower for kw in SENIOR_KEYWORDS):
+        return False
+    # Auto-approve if explicitly junior/graduate
+    if any(kw in title_lower for kw in FRESHER_KEYWORDS):
+        return True
+    # Accept generic titles like "DevOps Engineer", "Cloud Engineer" (no level specified)
+    return True
 
 LINKEDIN_EMAIL    = config.get("LINKEDIN_EMAIL")
 LINKEDIN_PASSWORD = config.get("LINKEDIN_PASSWORD")
@@ -502,9 +543,16 @@ async def find_jobs():
             jobs = await search_jobs(page, keyword)
             for job in jobs:
                 if not already_seen(job["id"]):
-                    save_job(job)
-                    send_job_for_approval(job)
-                    new_jobs += 1
+                    if is_fresher_role(job["title"]):
+                        save_job(job)
+                        # Auto-approve fresher/graduate roles — no manual tap needed
+                        update_job_status(job["id"], "approved")
+                        send_telegram(f"✅ *Auto-approved:* {job['title']} @ {job['company']}\n📍 {job['location']}")
+                        new_jobs += 1
+                    else:
+                        save_job(job)
+                        send_job_for_approval(job)
+                        new_jobs += 1
                     await asyncio.sleep(1)
 
         await browser.close()
@@ -512,10 +560,12 @@ async def find_jobs():
     if new_jobs == 0:
         send_telegram("💼 *Job Search Complete*\nNo new Easy Apply jobs found matching your profile.")
     else:
-        send_telegram(f"💼 Found *{new_jobs} new jobs*! Review above and tap ✅ Apply or ❌ Skip.")
+        send_telegram(f"💼 Found *{new_jobs} new jobs*! Auto-applying to fresher/graduate roles now...\nSending /applyjobs automatically.")
+        # Immediately apply to all auto-approved jobs
+        await apply_approved()
 
 
-async def apply_approved():
+async def apply_approved(from_find=False):
     """Apply to all Telegram-approved jobs."""
     init_db()
     approved = get_pending_jobs()
