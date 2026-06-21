@@ -17,25 +17,43 @@ config        = dotenv_values(Path.home() / ".env")
 ANTHROPIC_KEY = config.get("ANTHROPIC_API_KEY")
 
 RESUME = """
-Jaipal Kasi Reddy | kasireddyjaipal02@gmail.com | TODO: phone | TODO: city/country
+Jaipal Kasi Reddy
+kasireddyjaipal02@gmail.com | Dublin, Ireland
+linkedin.com/in/jaipal-kasireddy-375a5227b | github.com/Jaipalreddy2
 
-EXPERIENCE
-
-TODO: Job Title — Company Name (Mon YYYY – Present)
-• TODO: bullet point describing what you built/did
-• TODO: bullet point with tech used and impact
-• TODO: bullet point with another achievement
-
-TODO: Previous Job Title — Company Name (Mon YYYY – Mon YYYY)
-• TODO: bullet point
-• TODO: bullet point
+PROFILE
+MSc Cloud Computing student at National College of Ireland (NCI), Dublin. Passionate about
+building scalable, reliable, and secure cloud infrastructure. Seeking graduate and internship
+roles in Cloud Engineering, DevOps, and Software Development. Available for part-time work
+during studies and full-time from February 2027.
 
 EDUCATION
-TODO: Degree — University Name (YYYY–YYYY)
+MSc Cloud Computing — National College of Ireland (NCI), Dublin  (2025 – 2026, expected)
+TODO: BSc Degree — University Name, Country  (YYYY – YYYY)
 
-SKILLS
-TODO: Category: skill1, skill2, skill3
-TODO: Category: skill1, skill2, skill3
+PROJECTS
+Personal AI Assistant Bot  (Python · Telegram · Playwright · Claude AI · LinkedIn API)
+• Automated LinkedIn Easy Apply pipeline: searches 60+ DevOps/Cloud roles and auto-applies to
+  fresher and graduate positions in Dublin
+• Integrated Gmail IMAP, Google Calendar, and Telegram Bot API for a 24/7 personal assistant
+• Resume tailoring module uses Claude AI to rewrite bullet points matching each job description
+• Deployed on Windows with auto-start via Startup folder and PYTHONUTF8 compatibility fixes
+
+TODO: Add university projects (e.g. Cloud deployment project, Kubernetes lab, etc.)
+
+TECHNICAL SKILLS
+Cloud:      AWS (EC2, S3, IAM, CloudFormation — actively learning)
+DevOps:     Docker, Kubernetes, CI/CD Pipelines (GitHub Actions)
+OS:         Linux (command line, Bash scripting)
+Programming: Python, SQL
+Tools:      Git, GitHub
+
+CERTIFICATIONS
+TODO: Add AWS Cloud Practitioner, CKA, or other certs if completed
+
+INTERESTS / OPEN TO
+Cloud Engineer | DevOps Engineer | Graduate Programme | Platform Engineer | IT Systems
+Dublin on-site · Hybrid · Remote
 """
 
 
