@@ -352,17 +352,59 @@ async def search_jobs(page, keyword):
     return jobs
 
 
+async def dismiss_cookie_banner(page):
+    """Dismiss LinkedIn's cookie consent banner if present."""
+    try:
+        # Try clicking the Accept button in the consent modal
+        accepted = await page.evaluate("""() => {
+            const btns = Array.from(document.querySelectorAll('button'));
+            for (const btn of btns) {
+                const label = (btn.getAttribute('aria-label') || btn.innerText || '').toLowerCase();
+                if (label === 'accept' || label === 'accept cookies' || label === 'accept all') {
+                    btn.click();
+                    return true;
+                }
+            }
+            return false;
+        }""")
+        if accepted:
+            await page.wait_for_timeout(1000)
+    except Exception:
+        pass
+
+
 async def apply_to_job(page, job):
     """Apply to a single Easy Apply job."""
     try:
         await page.goto(job["url"], wait_until="domcontentloaded")
         await page.wait_for_timeout(3000)
 
+        # Dismiss cookie consent banner before looking for Easy Apply
+        await dismiss_cookie_banner(page)
+        await page.wait_for_timeout(500)
+
         # Find Easy Apply button via aria-label (works regardless of hashed CSS classes)
         apply_btn = (
             await page.query_selector("button[aria-label='Easy Apply to this job']") or
-            await page.query_selector("button[aria-label*='Easy Apply']")
+            await page.query_selector("button[aria-label*='Easy Apply']") or
+            await page.query_selector("button.jobs-apply-button") or
+            await page.query_selector("button[data-job-id]")
         )
+
+        # Also try finding by button text
+        if not apply_btn:
+            apply_btn = await page.evaluate_handle("""() => {
+                for (const btn of document.querySelectorAll('button')) {
+                    const t = (btn.innerText || '').trim();
+                    if (t === 'Easy Apply' || t.startsWith('Easy Apply')) return btn;
+                }
+                return null;
+            }""")
+            try:
+                if await apply_btn.evaluate("el => el === null"):
+                    apply_btn = None
+            except Exception:
+                apply_btn = None
 
         if not apply_btn:
             all_btns = await page.evaluate("() => Array.from(document.querySelectorAll('button')).map(b => b.getAttribute('aria-label') || b.innerText.trim()).filter(t => t).slice(0, 15)")
@@ -381,6 +423,7 @@ async def apply_to_job(page, job):
         # Click through all Easy Apply steps using LinkedIn's pre-filled data
         review_count = 0
         for step in range(30):
+            await dismiss_cookie_banner(page)
             await page.wait_for_timeout(1500)
 
             # After hitting Review twice without Submit, scroll down and look harder for Submit
@@ -793,13 +836,18 @@ async def apply_saved_jobs():
 
         # Navigate to Saved Jobs
         print("Loading saved jobs page...")
-        await page.goto("https://www.linkedin.com/my-items/saved-jobs/", wait_until="domcontentloaded")
-        await page.wait_for_timeout(4000)
+        await page.goto("https://www.linkedin.com/my-items/saved-jobs/", wait_until="networkidle")
+        await page.wait_for_timeout(3000)
+        await dismiss_cookie_banner(page)
+        await page.wait_for_timeout(500)
 
         # Scroll to load all saved jobs
         for _ in range(5):
-            await page.evaluate("window.scrollBy(0, 800)")
-            await page.wait_for_timeout(800)
+            try:
+                await page.evaluate("window.scrollBy(0, 800)")
+            except Exception:
+                break
+            await page.wait_for_timeout(700)
 
         # Extract job cards
         saved_jobs = []
@@ -840,8 +888,9 @@ async def apply_saved_jobs():
         print(f"Found {len(saved_jobs)} saved jobs")
 
         applied = 0
-        skipped = 0
+        external = []
         already_done = 0
+
         for job in saved_jobs:
             # Skip if already applied
             conn = sqlite3.connect(DB_PATH)
@@ -856,18 +905,17 @@ async def apply_saved_jobs():
                 save_job(job)
             update_job_status(job["id"], "approved")
 
-            # Apply
+            # Try Easy Apply
             try:
                 success = await apply_to_job(page, job)
             except Exception as e:
                 print(f"  Apply error: {e}")
                 success = False
 
-            update_job_status(job["id"], "applied" if success else "failed")
             if success:
                 applied += 1
+                update_job_status(job["id"], "applied")
                 send_telegram(f"✅ Applied: *{job['title']}*" + (f" at {job['company']}" if job['company'] else ""))
-                # Recruiter outreach
                 try:
                     recruiter = await find_and_connect_recruiter(page, job)
                     if recruiter:
@@ -875,14 +923,25 @@ async def apply_saved_jobs():
                 except Exception:
                     pass
             else:
-                skipped += 1
-                send_telegram(f"⚠️ Skipped *{job['title']}* — not Easy Apply or already applied.")
+                # Not Easy Apply — send link for manual application
+                update_job_status(job["id"], "pending")
+                external.append(job)
 
-            await asyncio.sleep(4)
+            await asyncio.sleep(3)
 
         await browser.close()
 
-    summary = f"🎉 Saved Jobs done!\n✅ Applied: *{applied}*\n⚠️ Skipped (external): *{skipped}*"
+    # Send external jobs as clickable links for manual application
+    if external:
+        msg = f"📋 *{len(external)} saved job(s) need manual application* (no Easy Apply):\n\n"
+        for j in external:
+            label = j['title'] or 'Job'
+            if j['company']:
+                label += f" @ {j['company']}"
+            msg += f"• [{label}]({j['url']})\n"
+        send_telegram(msg)
+
+    summary = f"🎉 Saved Jobs done!\n✅ Easy Applied: *{applied}*\n📋 Manual apply needed: *{len(external)}*"
     if already_done:
         summary += f"\n☑️ Already applied: *{already_done}*"
     send_telegram(summary)
