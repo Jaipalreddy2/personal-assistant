@@ -761,6 +761,133 @@ async def auto_apply():
     send_telegram(f"🎉 Done! *{applied}/{len(new_jobs)}* applications submitted.")
 
 
+async def apply_saved_jobs():
+    """Apply to all Easy Apply jobs in LinkedIn Saved Jobs."""
+    init_db()
+    send_telegram("🔖 Checking your LinkedIn Saved Jobs...")
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"]
+        )
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 800},
+        )
+        await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        page = await context.new_page()
+        await load_session(context)
+
+        # Check session
+        await page.goto("https://www.linkedin.com/feed", wait_until="domcontentloaded")
+        await page.wait_for_timeout(2000)
+        if "login" in page.url or "authwall" in page.url:
+            print("Session expired, re-logging in...")
+            await browser.close()
+            await login_linkedin_visible()
+            browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"])
+            context = await browser.new_context(user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", viewport={"width": 1280, "height": 800})
+            page = await context.new_page()
+            await load_session(context)
+
+        # Navigate to Saved Jobs
+        print("Loading saved jobs page...")
+        await page.goto("https://www.linkedin.com/my-items/saved-jobs/", wait_until="domcontentloaded")
+        await page.wait_for_timeout(4000)
+
+        # Scroll to load all saved jobs
+        for _ in range(5):
+            await page.evaluate("window.scrollBy(0, 800)")
+            await page.wait_for_timeout(800)
+
+        # Extract job cards
+        saved_jobs = []
+        cards = await page.query_selector_all("a[href*='/jobs/view/']")
+        seen_ids = set()
+        for card in cards:
+            try:
+                href = await card.get_attribute("href") or ""
+                import re as _re
+                m = _re.search(r"/jobs/view/(\d+)", href)
+                if not m:
+                    continue
+                job_id = m.group(1)
+                if job_id in seen_ids:
+                    continue
+                seen_ids.add(job_id)
+                title = (await card.inner_text()).strip().split("\n")[0][:80]
+                # Try to get company from sibling/parent
+                company = ""
+                try:
+                    parent = await card.evaluate_handle("el => el.closest('li') || el.parentElement")
+                    company_el = await parent.query_selector(".job-card-container__primary-description, .artdeco-entity-lockup__subtitle")
+                    if company_el:
+                        company = (await company_el.inner_text()).strip()
+                except Exception:
+                    pass
+                clean_url = f"https://www.linkedin.com/jobs/view/{job_id}/"
+                saved_jobs.append({"id": job_id, "title": title, "company": company, "url": clean_url})
+            except Exception:
+                continue
+
+        if not saved_jobs:
+            send_telegram("🔖 No saved jobs found (or page didn't load correctly).")
+            await browser.close()
+            return
+
+        send_telegram(f"🔖 Found *{len(saved_jobs)} saved jobs* — checking for Easy Apply...")
+        print(f"Found {len(saved_jobs)} saved jobs")
+
+        applied = 0
+        skipped = 0
+        already_done = 0
+        for job in saved_jobs:
+            # Skip if already applied
+            conn = sqlite3.connect(DB_PATH)
+            row = conn.execute("SELECT status FROM jobs WHERE id=?", (job["id"],)).fetchone()
+            conn.close()
+            if row and row[0] == "applied":
+                already_done += 1
+                continue
+
+            # Save to DB if not there
+            if not already_seen(job["id"]):
+                save_job(job)
+            update_job_status(job["id"], "approved")
+
+            # Apply
+            try:
+                success = await apply_to_job(page, job)
+            except Exception as e:
+                print(f"  Apply error: {e}")
+                success = False
+
+            update_job_status(job["id"], "applied" if success else "failed")
+            if success:
+                applied += 1
+                send_telegram(f"✅ Applied: *{job['title']}*" + (f" at {job['company']}" if job['company'] else ""))
+                # Recruiter outreach
+                try:
+                    recruiter = await find_and_connect_recruiter(page, job)
+                    if recruiter:
+                        send_telegram(f"🤝 Connection request sent to recruiter at *{job['company']}*")
+                except Exception:
+                    pass
+            else:
+                skipped += 1
+                send_telegram(f"⚠️ Skipped *{job['title']}* — not Easy Apply or already applied.")
+
+            await asyncio.sleep(4)
+
+        await browser.close()
+
+    summary = f"🎉 Saved Jobs done!\n✅ Applied: *{applied}*\n⚠️ Skipped (external): *{skipped}*"
+    if already_done:
+        summary += f"\n☑️ Already applied: *{already_done}*"
+    send_telegram(summary)
+
+
 async def do_login():
     """Open visible browser, auto-fill credentials and save session."""
     await login_linkedin_visible()
@@ -776,6 +903,8 @@ if __name__ == "__main__":
         asyncio.run(apply_approved())
     elif cmd == "autoapply":
         asyncio.run(auto_apply())
+    elif cmd == "savedjobs":
+        asyncio.run(apply_saved_jobs())
     elif cmd == "poll":
         poll_approvals()
     elif cmd == "login":

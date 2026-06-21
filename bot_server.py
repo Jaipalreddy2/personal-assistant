@@ -505,6 +505,16 @@ def handle_command(text):
         except Exception as e:
             return f"⚠️ Error: {e}"
 
+    if cmd == "/savedjobs":
+        try:
+            subprocess.Popen(
+                [PYTHON, str(BASE / "linkedin_apply.py"), "savedjobs"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            return "🔖 Applying to your LinkedIn Saved Jobs now... results coming shortly!"
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
     if cmd == "/digest":
         try:
             subprocess.Popen(
@@ -519,6 +529,7 @@ def handle_command(text):
         return ("🤖 *Available Commands:*\n\n"
                 "*Job Search:*\n"
                 "/autoapply — find + apply to all new Easy Apply jobs automatically\n"
+                "/savedjobs — apply to all jobs saved on LinkedIn\n"
                 "/findjobs — search jobs (manual approval mode)\n"
                 "/applyjobs — apply to manually approved jobs\n"
                 "/mystatus — view all applications + pipeline\n"
