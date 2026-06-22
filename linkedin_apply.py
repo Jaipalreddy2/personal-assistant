@@ -66,17 +66,29 @@ SENIOR_KEYWORDS = [
     "7+ years", "8+ years", "10+ years",
 ]
 
+# Role must contain at least one of these to be considered relevant tech role
+TECH_KEYWORDS = [
+    "engineer", "developer", "devops", "cloud", "platform", "software",
+    "infrastructure", "sre", "reliability", "python", "aws", "kubernetes",
+    "docker", "backend", "fullstack", "full stack", "full-stack",
+    "it ", "data", "systems", "network", "security", "support",
+    "technical", "computing", "automation",
+]
+
 
 def is_fresher_role(title):
-    """Return True if the job title looks suitable for a fresher/graduate."""
+    """Return True if the job title is a relevant tech role for a fresher/graduate."""
     title_lower = title.lower()
     # Skip if clearly senior
     if any(kw in title_lower for kw in SENIOR_KEYWORDS):
         return False
+    # Skip if not a tech role at all (e.g. Sales, BDR, Marketing)
+    if not any(kw in title_lower for kw in TECH_KEYWORDS):
+        return False
     # Auto-approve if explicitly junior/graduate
     if any(kw in title_lower for kw in FRESHER_KEYWORDS):
         return True
-    # Accept generic titles like "DevOps Engineer", "Cloud Engineer" (no level specified)
+    # Accept generic tech titles like "DevOps Engineer", "Cloud Engineer"
     return True
 
 LINKEDIN_EMAIL    = config.get("LINKEDIN_EMAIL")
