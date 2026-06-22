@@ -132,10 +132,23 @@ Return ONLY the tailored resume text, no commentary."""
     return response.content[0].text
 
 
-async def tailor_for_job(job, session_file):
-    """Full pipeline: fetch JD → tailor → return text."""
+async def tailor_for_job(job, session_file=None, page=None):
+    """Full pipeline: optionally scrape JD (reusing existing page) → tailor → return text."""
     print(f"Tailoring resume for {job['title']} @ {job['company']}...")
-    jd = await fetch_job_description(job["url"], session_file)
+    jd = ""
+    if page is not None:
+        # Reuse the already-open browser page — no second LinkedIn request
+        try:
+            desc_el = (
+                await page.query_selector(".jobs-description__content") or
+                await page.query_selector("#job-details") or
+                await page.query_selector(".description__text")
+            )
+            if desc_el:
+                jd = (await desc_el.inner_text()).strip()[:3000]
+        except Exception:
+            pass
+    # If no JD scraped, tailor from title+company alone (no extra browser)
     tailored = tailor_resume_with_claude(job["title"], job["company"], jd)
     return tailored
 
