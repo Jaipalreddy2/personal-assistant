@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import dotenv_values
 from playwright.async_api import async_playwright
-from linkedin_browser import get_context, is_logged_in
+from linkedin_browser import get_context, is_logged_in, ensure_active_session
 
 # Force UTF-8 output on Windows to support emoji in print statements
 if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
@@ -264,15 +264,8 @@ async def load_session(context):
 
 
 async def ensure_session(p):
-    """Return (context, page) using persistent profile. Returns (None, None) if session expired."""
-    context = await get_context(p, headless=True)
-    page = await context.new_page()
-    if not await is_logged_in(page):
-        await page.close()
-        await context.close()
-        send_telegram("❌ LinkedIn session expired — please run /login to refresh, then try again.")
-        return None, None
-    return context, page
+    """Return (context, page) — auto-opens visible browser if session expired."""
+    return await ensure_active_session(p, send_telegram)
 
 
 async def login_linkedin_visible():
@@ -1040,41 +1033,9 @@ async def login_then_apply():
         return
 
     async with async_playwright() as p:
-        # Try headless with persistent profile first
-        context = await get_context(p, headless=True)
-        page = await context.new_page()
-        logged_in = await is_logged_in(page)
-
-        if not logged_in:
-            await page.close()
-            await context.close()
-            send_telegram("🔐 Session expired — opening browser for re-login. Sign in and the bot will apply automatically.")
-            context = await get_context(p, headless=False)
-            page = await context.new_page()
-            await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
-            await page.wait_for_timeout(3000)
-
-            try:
-                await page.wait_for_selector("#username, input[name='session_key']", timeout=15000)
-                email_sel = "#username" if await page.query_selector("#username") else "input[name='session_key']"
-                pwd_sel   = "#password" if await page.query_selector("#password") else "input[name='session_password']"
-                await page.fill(email_sel, LINKEDIN_EMAIL)
-                await page.wait_for_timeout(600)
-                await page.fill(pwd_sel, LINKEDIN_PASSWORD)
-                await page.wait_for_timeout(600)
-                await page.click("button[type='submit']")
-            except Exception:
-                send_telegram("⚠️ Auto-fill failed — please log in manually in the browser window.")
-
-            try:
-                await page.wait_for_url("**/feed**", timeout=180000)
-            except Exception:
-                pass
-
-            if "feed" not in page.url and not page.url.startswith("https://www.linkedin.com/in/"):
-                send_telegram(f"❌ Login failed or timed out. Please try again.")
-                await context.close()
-                return
+        context, page = await ensure_session(p)
+        if context is None:
+            return
 
         send_telegram(f"✅ LinkedIn active — applying to *{len(approved)} jobs* now...")
 

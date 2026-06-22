@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import dotenv_values
 from playwright.async_api import async_playwright
-from linkedin_browser import get_context, is_logged_in as _li_logged_in
+from linkedin_browser import get_context, is_logged_in as _li_logged_in, ensure_active_session as _li_ensure
 import anthropic
 
 config = dotenv_values(Path.home() / ".env")
@@ -549,11 +549,8 @@ async def handle_feed_action(post_id, action):
     comment_text = generate_comment(post)
 
     async with async_playwright() as p:
-        context = await get_context(p, headless=True)
-        page = await context.new_page()
-        if not await _li_logged_in(page):
-            await context.close()
-            send_telegram("❌ LinkedIn session expired — please run /login to refresh.", topic="chat")
+        context, page = await _li_ensure(p, lambda msg: send_telegram(msg, topic="chat"))
+        if context is None:
             return
 
         # Step 1 — Comment
@@ -618,11 +615,8 @@ async def scan_feed():
     init_feed_db()
 
     async with async_playwright() as p:
-        context = await get_context(p, headless=True)
-        page = await context.new_page()
-        if not await _li_logged_in(page):
-            await context.close()
-            send_telegram("⚠️ LinkedIn session expired — run /login to refresh.", topic="chat")
+        context, page = await _li_ensure(p, lambda msg: send_telegram(msg, topic="chat"))
+        if context is None:
             return
 
         print("Searching LinkedIn for relevant posts...")
