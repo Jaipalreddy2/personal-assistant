@@ -694,9 +694,10 @@ async def find_and_connect_recruiter(page, job):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 async def find_jobs():
-    """Find new Easy Apply jobs and send to Telegram for approval."""
+    """Find new relevant Easy Apply jobs and list them in Telegram. Does NOT apply."""
     init_db()
     new_jobs = 0
+    found_jobs = []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -745,18 +746,12 @@ async def find_jobs():
                 break
 
             for job in jobs:
-                if not already_seen(job["id"]):
-                    if is_fresher_role(job["title"]):
-                        save_job(job)
-                        # Auto-approve fresher/graduate roles — no manual tap needed
-                        update_job_status(job["id"], "approved")
-                        send_telegram(f"✅ *Auto-approved:* {job['title']} @ {job['company']}\n📍 {job['location']}")
-                        new_jobs += 1
-                    else:
-                        save_job(job)
-                        send_job_for_approval(job)
-                        new_jobs += 1
-                    await asyncio.sleep(1)
+                if not already_seen(job["id"]) and is_fresher_role(job["title"]):
+                    save_job(job)
+                    update_job_status(job["id"], "approved")
+                    found_jobs.append(job)
+                    new_jobs += 1
+                    await asyncio.sleep(0.5)
 
         await browser.close()
 
@@ -765,11 +760,14 @@ async def find_jobs():
             send_telegram("🔄 Session refreshed — please re-run /findjobs to continue the job search.")
 
     if new_jobs == 0:
-        send_telegram("💼 *Job Search Complete*\nNo new Easy Apply jobs found matching your profile.")
+        send_telegram("💼 *Job Search Complete*\nNo new relevant jobs found. Try again later.")
     else:
-        send_telegram(f"💼 Found *{new_jobs} new jobs*! Auto-applying to fresher/graduate roles now...\nSending /applyjobs automatically.")
-        # Immediately apply to all auto-approved jobs
-        await apply_approved()
+        # Send a single batched summary instead of one message per job
+        lines = [f"💼 *Found {new_jobs} new jobs* — tap /applyjobs to apply to all\n"]
+        for j in found_jobs:
+            loc = f" · {j['location']}" if j.get('location') else ""
+            lines.append(f"• *{j['title']}* @ {j['company']}{loc}")
+        send_telegram("\n".join(lines))
 
 
 async def apply_approved(from_find=False):
@@ -829,20 +827,16 @@ async def apply_approved(from_find=False):
 
         applied = 0
         for job in approved:
-            # 1. Tailor resume (reuse current page — no second browser opened)
+            # 1. Tailor resume silently — save to DB, no Telegram spam
             try:
                 from resume_tailor import tailor_for_job
                 tailored = await tailor_for_job(job, page=page)
                 if tailored:
-                    # Save to DB
                     conn = sqlite3.connect(DB_PATH)
                     conn.execute("UPDATE jobs SET tailored_resume=? WHERE id=?", (tailored, job["id"]))
                     conn.commit()
                     conn.close()
-                    send_telegram(
-                        f"📄 *Tailored Resume for {job['title']} @ {job['company']}*\n\n"
-                        f"```\n{tailored[:800]}...\n```\n_(full version saved)_"
-                    )
+                    print(f"  Resume tailored for {job['title']}")
             except Exception as e:
                 print(f"  Resume tailor error: {e}")
 
