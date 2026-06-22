@@ -7,7 +7,7 @@ Session cookies survive reboots. No cookie injection = no fingerprint detection.
 from pathlib import Path
 from dotenv import dotenv_values
 
-_config = dotenv_values(Path.home() / ".env")
+_config   = dotenv_values(Path.home() / ".env")
 _EMAIL    = _config.get("LINKEDIN_EMAIL", "")
 _PASSWORD = _config.get("LINKEDIN_PASSWORD", "")
 
@@ -25,6 +25,20 @@ _UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/125.0.0.0 Safari/537.36"
 )
+
+# Ordered from most reliable to least — tries each until one works
+_EMAIL_SELECTORS = [
+    "input[autocomplete='username']",
+    "#username",
+    "input[name='session_key']",
+    "input[type='email']",
+]
+_PWD_SELECTORS = [
+    "input[autocomplete='current-password']",
+    "#password",
+    "input[name='session_password']",
+    "input[type='password']",
+]
 
 
 async def get_context(playwright, headless: bool = True):
@@ -59,43 +73,103 @@ async def is_logged_in(page) -> bool:
         return False
 
 
-async def ensure_active_session(playwright, send_telegram_fn):
-    """Return (context, page) — auto-opens visible browser if session expired.
+async def _find_and_fill(page, selectors, value):
+    """Try each selector until one is visible and fillable. Returns True on success."""
+    # Give LinkedIn up to 30s to render the form
+    for sel in selectors:
+        try:
+            await page.wait_for_selector(sel, state="visible", timeout=30000)
+            el = page.locator(sel).first
+            await el.scroll_into_view_if_needed()
+            await el.click()
+            await page.wait_for_timeout(300)
+            await el.clear()
+            await el.type(value, delay=60)  # human-like keystroke delay
+            return True
+        except Exception:
+            continue
+    return False
 
-    Handles re-login transparently so callers never need to show an error.
-    send_telegram_fn is called to notify the user (pass send_telegram from the caller).
+
+async def _autofill_login(page, send_telegram_fn):
+    """Attempt to fill and submit the LinkedIn login form. Returns True if submitted."""
+    # Wait for the page to fully settle before looking for inputs
+    try:
+        await page.wait_for_load_state("networkidle", timeout=15000)
+    except Exception:
+        pass
+    await page.wait_for_timeout(2000)
+
+    if "feed" in page.url:
+        return True  # already logged in
+
+    filled_email = await _find_and_fill(page, _EMAIL_SELECTORS, _EMAIL)
+    if not filled_email:
+        send_telegram_fn("⚠️ Could not find email field — please log in manually in the browser window.")
+        return False
+
+    await page.wait_for_timeout(500)
+
+    filled_pwd = await _find_and_fill(page, _PWD_SELECTORS, _PASSWORD)
+    if not filled_pwd:
+        send_telegram_fn("⚠️ Could not find password field — please log in manually.")
+        return False
+
+    await page.wait_for_timeout(500)
+
+    # Submit — try button click first, fall back to Enter key
+    try:
+        btn = page.locator("button[type='submit'], button[data-litms-control-urn*='sign-in']").first
+        await btn.click(timeout=5000)
+    except Exception:
+        try:
+            await page.keyboard.press("Enter")
+        except Exception:
+            pass
+
+    return True
+
+
+async def ensure_active_session(playwright, send_telegram_fn):
+    """Return (context, page) using persistent profile.
+
+    If session is expired, opens a visible browser, auto-fills credentials,
+    and waits for login before returning. Caller never sees an error message.
     """
     context = await get_context(playwright, headless=True)
     page = await context.new_page()
     if await is_logged_in(page):
         return context, page
 
-    # Session expired — switch to visible browser for re-login
+    # Session expired — reopen visibly for re-login
     await page.close()
     await context.close()
-    send_telegram_fn("🔐 LinkedIn session expired — opening browser on your PC. Sign in and the bot will continue automatically.")
+    send_telegram_fn("🔐 LinkedIn session expired — opening browser and signing in automatically...")
 
     context = await get_context(playwright, headless=False)
     page = await context.new_page()
+
     try:
         await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=30000)
     except Exception:
         pass
-    await page.wait_for_timeout(3000)
 
-    # Try auto-fill credentials
+    submitted = await _autofill_login(page, send_telegram_fn)
+    if submitted:
+        send_telegram_fn("⏳ Credentials submitted — waiting for LinkedIn to load...")
+
+    # Wait up to 3 min for feed (covers 2FA / CAPTCHA cases)
     try:
-        await page.wait_for_selector("#username, input[name='session_key']", timeout=15000)
-        email_sel = "#username" if await page.query_selector("#username") else "input[name='session_key']"
-        pwd_sel   = "#password" if await page.query_selector("#password") else "input[name='session_password']"
-        await page.fill(email_sel, _EMAIL)
-        await page.wait_for_timeout(600)
-        await page.fill(pwd_sel, _PASSWORD)
-        await page.wait_for_timeout(600)
-        await page.click("button[type='submit']")
+        await page.wait_for_url("**/feed**", timeout=180000)
     except Exception:
-        send_telegram_fn("⚠️ Auto-fill failed — please log in manually in the browser window.")
+        pass
 
+    if "feed" in page.url or page.url.startswith("https://www.linkedin.com/in/"):
+        send_telegram_fn("✅ Logged in! Continuing...")
+        return context, page
+
+    # Still not logged in — maybe 2FA or CAPTCHA
+    send_telegram_fn("⚠️ Waiting for you to complete login (2FA/CAPTCHA?) — up to 3 more minutes...")
     try:
         await page.wait_for_url("**/feed**", timeout=180000)
     except Exception:
@@ -106,5 +180,5 @@ async def ensure_active_session(playwright, send_telegram_fn):
         return context, page
 
     await context.close()
-    send_telegram_fn("❌ Login timed out. Please try the command again.")
+    send_telegram_fn("❌ Login timed out. Please run /login and sign in manually, then retry.")
     return None, None
