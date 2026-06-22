@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import dotenv_values
 from playwright.async_api import async_playwright
+from linkedin_browser import get_context, is_logged_in as _li_logged_in
 import anthropic
 
 config = dotenv_values(Path.home() / ".env")
@@ -548,20 +549,12 @@ async def handle_feed_action(post_id, action):
     comment_text = generate_comment(post)
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=False,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--start-maximized"]
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
-            permissions=["clipboard-read", "clipboard-write"],
-        )
-        await context.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        )
+        context = await get_context(p, headless=True)
         page = await context.new_page()
-        await load_session(context)
+        if not await _li_logged_in(page):
+            await context.close()
+            send_telegram("❌ LinkedIn session expired — please run /login to refresh.", topic="chat")
+            return
 
         # Step 1 — Comment
         commented = await comment_on_post(page, post, comment_text)
@@ -593,7 +586,7 @@ async def handle_feed_action(post_id, action):
                     topic="chat"
                 )
 
-        await browser.close()
+        await context.close()
 
 
 def handle_feed_callback(update):
@@ -625,32 +618,16 @@ async def scan_feed():
     init_feed_db()
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=False,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--start-maximized"]
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
-            permissions=["clipboard-read", "clipboard-write"],
-        )
-        await context.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        )
+        context = await get_context(p, headless=True)
         page = await context.new_page()
-        await load_session(context)
-
-        # Quick session check
-        await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded")
-        await page.wait_for_timeout(3000)
-        if "login" in page.url or "authwall" in page.url:
-            send_telegram("⚠️ LinkedIn session expired — re-login needed.", topic="chat")
-            await browser.close()
+        if not await _li_logged_in(page):
+            await context.close()
+            send_telegram("⚠️ LinkedIn session expired — run /login to refresh.", topic="chat")
             return
 
         print("Searching LinkedIn for relevant posts...")
         posts = await scrape_feed_posts(page)
-        await browser.close()
+        await context.close()
 
     if not posts:
         send_telegram("📰 *LinkedIn Feed*\nNo new posts found.", topic="chat")

@@ -571,35 +571,29 @@ def handle_command(text):
     return None
 
 
-def refresh_linkedin_session():
-    """Run auto_relogin.py as a subprocess to silently refresh the LinkedIn session."""
+def start_linkedin_keepalive():
+    """Start linkedin_keepalive.py as a background process to keep the LinkedIn session alive."""
     try:
         subprocess.Popen(
-            [PYTHON, str(BASE / "auto_relogin.py")],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            [PYTHON, str(BASE / "linkedin_keepalive.py")],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
-        print(f"[{datetime.now().strftime('%H:%M')}] LinkedIn session refresh triggered.")
+        print(f"[{datetime.now().strftime('%H:%M')}] LinkedIn keepalive started.")
     except Exception as e:
-        print(f"Session refresh error: {e}")
+        print(f"Keepalive start error: {e}")
 
 
 def run():
     print(f"[{datetime.now().strftime('%H:%M')}] Bot server started. Listening for messages...")
     send_message("🤖 Bunty is online! Type anything to chat, or use /help to see commands.")
 
-    # Refresh LinkedIn session on startup and every 6 hours
-    refresh_linkedin_session()
-    last_session_refresh = time.time()
-    SESSION_REFRESH_INTERVAL = 6 * 60 * 60  # 6 hours
+    # Start LinkedIn keep-alive daemon (pings feed every 30 min to prevent session expiry)
+    start_linkedin_keepalive()
 
     offset = None
     while True:
         try:
-            # Periodic LinkedIn session refresh
-            if time.time() - last_session_refresh > SESSION_REFRESH_INTERVAL:
-                refresh_linkedin_session()
-                last_session_refresh = time.time()
-
             updates = get_updates(offset)
             for update in updates.get("result", []):
                 offset = update["update_id"] + 1

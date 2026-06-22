@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import dotenv_values
 from playwright.async_api import async_playwright
+from linkedin_browser import get_context, is_logged_in
 
 # Force UTF-8 output on Windows to support emoji in print statements
 if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
@@ -254,7 +255,6 @@ async def load_session(context):
     if SESSION_FILE.exists():
         data = json.loads(SESSION_FILE.read_text())
         cookies = data["cookies"] if isinstance(data, dict) and "cookies" in data else data
-        # Fix domain: li_at must be on .linkedin.com not .www.linkedin.com
         for c in cookies:
             if c.get("domain", "").startswith(".www."):
                 c["domain"] = c["domain"].replace(".www.", ".")
@@ -263,45 +263,56 @@ async def load_session(context):
     return False
 
 
+async def ensure_session(p):
+    """Return (context, page) using persistent profile. Returns (None, None) if session expired."""
+    context = await get_context(p, headless=True)
+    page = await context.new_page()
+    if not await is_logged_in(page):
+        await page.close()
+        await context.close()
+        send_telegram("❌ LinkedIn session expired — please run /login to refresh, then try again.")
+        return None, None
+    return context, page
+
+
 async def login_linkedin_visible():
-    """Open a visible browser, auto-fill credentials, and save session."""
-    send_telegram("🔐 LinkedIn session expired — opening browser to re-login automatically...")
+    """Open the persistent Chrome profile visibly for re-login."""
+    send_telegram("🔐 Opening browser for LinkedIn login — sign in and the window will close automatically.")
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        context = await browser.new_context()
+        context = await get_context(p, headless=False)
         page = await context.new_page()
         try:
             await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
             await page.wait_for_timeout(3000)
 
-            # Index 1 is the visible form (index 0 is a hidden duplicate)
-            email_field = page.locator("input[type='email']").nth(1)
-            pwd_field   = page.locator("input[type='password']").nth(1)
-            await email_field.click(timeout=10000)
-            await email_field.type(LINKEDIN_EMAIL, delay=50)
-            await page.wait_for_timeout(500)
+            if "feed" in page.url:
+                send_telegram("✅ Already logged in!")
+                return
 
-            await pwd_field.click(timeout=10000)
-            await pwd_field.type(LINKEDIN_PASSWORD, delay=50)
-            await page.wait_for_timeout(1000)
-
-            # Click Sign in by text — button type changes after form fill
-            signin_btn = page.get_by_role("button", name="Sign in").last
-            await signin_btn.click(timeout=10000)
-            await page.wait_for_timeout(3000)
-
-            # Wait for feed — notify user if CAPTCHA appears
             try:
-                await page.wait_for_url("**/feed/**", timeout=30000)
+                await page.wait_for_selector("#username, input[name='session_key']", timeout=15000)
+                email_sel = "#username" if await page.query_selector("#username") else "input[name='session_key']"
+                pwd_sel   = "#password" if await page.query_selector("#password") else "input[name='session_password']"
+                await page.fill(email_sel, LINKEDIN_EMAIL)
+                await page.wait_for_timeout(600)
+                await page.fill(pwd_sel, LINKEDIN_PASSWORD)
+                await page.wait_for_timeout(600)
+                await page.click("button[type='submit']")
             except Exception:
-                send_telegram("⚠️ LinkedIn login needs manual help — please complete CAPTCHA in the browser window that just opened.")
-                await page.wait_for_url("**/feed/**", timeout=120000)
+                send_telegram("⚠️ Auto-fill failed — please log in manually in the browser window.")
 
-            await save_session(page)
-            send_telegram("✅ LinkedIn re-logged in! Job search is ready.")
-            print("✅ Session refreshed.")
+            try:
+                await page.wait_for_url("**/feed**", timeout=180000)
+            except Exception:
+                pass
+
+            if "feed" in page.url or page.url.startswith("https://www.linkedin.com/in/"):
+                send_telegram("✅ LinkedIn logged in! Session saved. Future operations run headlessly.")
+                print("Session saved to persistent profile.")
+            else:
+                send_telegram(f"❌ Login may not have completed (URL: {page.url}). Try again.")
         finally:
-            await browser.close()
+            await context.close()
 
 
 async def search_jobs(page, keyword):
@@ -700,39 +711,9 @@ async def find_jobs():
     found_jobs = []
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=False,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage", "--start-maximized"]
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            viewport={"width": 1366, "height": 768},
-        )
-        await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        page = await context.new_page()
-
-        session_loaded = await load_session(context)
-        if not session_loaded:
-            await browser.close()
-            await login_linkedin_visible()
-            # Re-open headless browser with fresh session
-            browser  = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"])
-            context  = await browser.new_context(user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", viewport={"width": 1280, "height": 800})
-            await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            page = await context.new_page()
-            await load_session(context)
-        else:
-            await page.goto("https://www.linkedin.com/feed")
-            await page.wait_for_timeout(2000)
-            if "login" in page.url or "authwall" in page.url:
-                print("Session expired, re-logging in...")
-                await browser.close()
-                await login_linkedin_visible()
-                browser  = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"])
-                context  = await browser.new_context(user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", viewport={"width": 1280, "height": 800})
-                await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-                page = await context.new_page()
-                await load_session(context)
+        context, page = await ensure_session(p)
+        if context is None:
+            return
 
         session_expired = False
         for keyword in JOB_KEYWORDS:
@@ -753,11 +734,10 @@ async def find_jobs():
                     new_jobs += 1
                     await asyncio.sleep(0.5)
 
-        await browser.close()
+        await context.close()
 
         if session_expired:
-            await login_linkedin_visible()
-            send_telegram("🔄 Session refreshed — please re-run /findjobs to continue the job search.")
+            send_telegram("❌ LinkedIn session expired mid-search — please run /login, then retry /findjobs.")
 
     if new_jobs == 0:
         send_telegram("💼 *Job Search Complete*\nNo new relevant jobs found. Try again later.")
@@ -782,48 +762,11 @@ async def apply_approved(from_find=False):
     send_telegram(f"🚀 Applying to *{len(approved)} approved jobs*...")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=False,
-            args=[
-                "--no-sandbox",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-dev-shm-usage",
-                "--start-maximized",
-            ]
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1366, "height": 768},
-        )
-        await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        page = await context.new_page()
-
-        await load_session(context)
-
-        # Try warming up the session with progressively simpler URLs
-        session_ok = False
-        for warmup_url, wu_wait in [
-            ("https://www.linkedin.com/", "commit"),
-            ("https://www.linkedin.com/jobs/", "commit"),
-            ("https://www.linkedin.com/feed", "domcontentloaded"),
-        ]:
-            try:
-                await page.goto(warmup_url, wait_until=wu_wait, timeout=30000)
-                await page.wait_for_timeout(3000)
-                if "login" not in page.url and "authwall" not in page.url and "checkpoint" not in page.url:
-                    session_ok = True
-                    print(f"Session warmed up via {warmup_url} → {page.url}")
-                    break
-            except Exception as e:
-                print(f"Warmup nav error ({warmup_url}): {e}")
-
-        if not session_ok:
-            send_telegram("❌ LinkedIn session expired — please run `python fresh_login.py` then retry `/applyjobs`.")
-            await browser.close()
+        context, page = await ensure_session(p)
+        if context is None:
             return
 
-        # Allow LinkedIn's JS anti-bot checks to complete
-        await page.wait_for_timeout(5000)
+        await page.wait_for_timeout(3000)
 
         applied = 0
         for job in approved:
@@ -873,7 +816,7 @@ async def apply_approved(from_find=False):
 
             await asyncio.sleep(random.randint(10, 20))
 
-        await browser.close()
+        await context.close()
 
     send_telegram(f"🎉 Done! Applied to *{applied}/{len(approved)}* jobs.")
 
@@ -901,41 +844,9 @@ async def auto_apply():
     init_db()
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"]
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
-        )
-        await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        page = await context.new_page()
-        await load_session(context)
-        await page.goto("https://www.linkedin.com/feed")
-        await page.wait_for_timeout(2000)
-
-        if "login" in page.url or "authwall" in page.url:
-            print("Session expired, auto-relogging in...")
-            await browser.close()
-            await login_linkedin_visible()
-            # Reopen headless browser with fresh session
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"]
-            )
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 800},
-            )
-            page = await context.new_page()
-            await load_session(context)
-            await page.goto("https://www.linkedin.com/feed")
-            await page.wait_for_timeout(2000)
-            if "login" in page.url or "authwall" in page.url:
-                send_telegram("LinkedIn re-login failed — please run `python3 linkedin_login_once.py` manually.")
-                await browser.close()
-                return
+        context, page = await ensure_session(p)
+        if context is None:
+            return
 
         # Phase 1: find all new jobs
         new_jobs = []
@@ -950,7 +861,7 @@ async def auto_apply():
 
         if not new_jobs:
             send_telegram("💼 *Auto Apply*\nNo new Easy Apply jobs found.")
-            await browser.close()
+            await context.close()
             return
 
         send_telegram(f"💼 Found *{len(new_jobs)} new jobs* — applying now, no approval needed...")
@@ -985,7 +896,7 @@ async def auto_apply():
 
             await asyncio.sleep(random.randint(10, 20))
 
-        await browser.close()
+        await context.close()
     send_telegram(f"🎉 Done! *{applied}/{len(new_jobs)}* applications submitted.")
 
 
@@ -995,29 +906,9 @@ async def apply_saved_jobs():
     send_telegram("🔖 Checking your LinkedIn Saved Jobs...")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"]
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
-        )
-        await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        page = await context.new_page()
-        await load_session(context)
-
-        # Check session
-        await page.goto("https://www.linkedin.com/feed", wait_until="domcontentloaded")
-        await page.wait_for_timeout(2000)
-        if "login" in page.url or "authwall" in page.url:
-            print("Session expired, re-logging in...")
-            await browser.close()
-            await login_linkedin_visible()
-            browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"])
-            context = await browser.new_context(user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", viewport={"width": 1280, "height": 800})
-            page = await context.new_page()
-            await load_session(context)
+        context, page = await ensure_session(p)
+        if context is None:
+            return
 
         # Navigate to Saved Jobs
         print("Loading saved jobs page...")
@@ -1066,7 +957,7 @@ async def apply_saved_jobs():
 
         if not saved_jobs:
             send_telegram("🔖 No saved jobs found (or page didn't load correctly).")
-            await browser.close()
+            await context.close()
             return
 
         send_telegram(f"🔖 Found *{len(saved_jobs)} saved jobs* — checking for Easy Apply...")
@@ -1114,7 +1005,7 @@ async def apply_saved_jobs():
 
             await asyncio.sleep(3)
 
-        await browser.close()
+        await context.close()
 
     # Send external jobs as clickable links for manual application
     if external:
@@ -1139,9 +1030,8 @@ async def do_login():
 
 async def login_then_apply():
     """
-    Login + apply in ONE browser session — avoids LinkedIn cookie-restore fingerprint.
-    Opens a visible browser, waits for manual login, then applies without closing.
-    Use this when apply_approved() keeps failing with session errors.
+    Apply using the persistent Chrome profile — headless, no popup window.
+    If session is expired, opens a visible browser for re-login first.
     """
     init_db()
     approved = get_pending_jobs()
@@ -1149,54 +1039,44 @@ async def login_then_apply():
         send_telegram("📋 No approved jobs to apply to. Run /findjobs first.")
         return
 
-    send_telegram("🔐 Opening browser for login — please sign in to LinkedIn. Will apply automatically after.")
-
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=False,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--start-maximized"]
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            viewport={"width": 1366, "height": 768},
-            locale="en-IE",
-        )
-        await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        # Try headless with persistent profile first
+        context = await get_context(p, headless=True)
         page = await context.new_page()
+        logged_in = await is_logged_in(page)
 
-        # Navigate to login — no pre-loaded cookies, fresh session
-        await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
-        await page.wait_for_timeout(3000)
+        if not logged_in:
+            await page.close()
+            await context.close()
+            send_telegram("🔐 Session expired — opening browser for re-login. Sign in and the bot will apply automatically.")
+            context = await get_context(p, headless=False)
+            page = await context.new_page()
+            await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
+            await page.wait_for_timeout(3000)
 
-        # Try auto-fill
-        try:
-            await page.wait_for_selector("#username, input[name='session_key']", timeout=15000)
-            email_sel = "#username" if await page.query_selector("#username") else "input[name='session_key']"
-            pwd_sel   = "#password" if await page.query_selector("#password") else "input[name='session_password']"
-            await page.fill(email_sel, LINKEDIN_EMAIL)
-            await page.wait_for_timeout(600)
-            await page.fill(pwd_sel, LINKEDIN_PASSWORD)
-            await page.wait_for_timeout(600)
-            await page.click("button[type='submit']")
-            print("Credentials submitted...")
-        except Exception:
-            send_telegram("⚠️ Auto-fill failed — please log in manually in the browser window.")
+            try:
+                await page.wait_for_selector("#username, input[name='session_key']", timeout=15000)
+                email_sel = "#username" if await page.query_selector("#username") else "input[name='session_key']"
+                pwd_sel   = "#password" if await page.query_selector("#password") else "input[name='session_password']"
+                await page.fill(email_sel, LINKEDIN_EMAIL)
+                await page.wait_for_timeout(600)
+                await page.fill(pwd_sel, LINKEDIN_PASSWORD)
+                await page.wait_for_timeout(600)
+                await page.click("button[type='submit']")
+            except Exception:
+                send_telegram("⚠️ Auto-fill failed — please log in manually in the browser window.")
 
-        # Wait for feed (up to 3 min for manual login / 2FA)
-        try:
-            await page.wait_for_url("**/feed**", timeout=180000)
-        except Exception:
-            pass
+            try:
+                await page.wait_for_url("**/feed**", timeout=180000)
+            except Exception:
+                pass
 
-        if "feed" not in page.url and not page.url.startswith("https://www.linkedin.com/in/"):
-            send_telegram(f"❌ Login failed or timed out (URL: {page.url}). Please try again.")
-            await browser.close()
-            return
+            if "feed" not in page.url and not page.url.startswith("https://www.linkedin.com/in/"):
+                send_telegram(f"❌ Login failed or timed out. Please try again.")
+                await context.close()
+                return
 
-        # Save session for future use
-        cookies = await context.cookies()
-        SESSION_FILE.write_text(json.dumps({"cookies": cookies}))
-        send_telegram(f"✅ Logged in! Applying to *{len(approved)} jobs* now in the same session...")
+        send_telegram(f"✅ LinkedIn active — applying to *{len(approved)} jobs* now...")
 
         # Apply without closing the browser
         applied = 0
@@ -1235,7 +1115,7 @@ async def login_then_apply():
 
             await asyncio.sleep(random.randint(8, 15))
 
-        await browser.close()
+        await context.close()
     send_telegram(f"🎉 Done! Applied to *{applied}/{len(approved)}* jobs.")
 
 
