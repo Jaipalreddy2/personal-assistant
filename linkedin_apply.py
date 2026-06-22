@@ -1131,6 +1131,108 @@ async def do_login():
     await login_linkedin_visible()
 
 
+async def login_then_apply():
+    """
+    Login + apply in ONE browser session — avoids LinkedIn cookie-restore fingerprint.
+    Opens a visible browser, waits for manual login, then applies without closing.
+    Use this when apply_approved() keeps failing with session errors.
+    """
+    init_db()
+    approved = get_pending_jobs()
+    if not approved:
+        send_telegram("📋 No approved jobs to apply to. Run /findjobs first.")
+        return
+
+    send_telegram("🔐 Opening browser for login — please sign in to LinkedIn. Will apply automatically after.")
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=False,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--start-maximized"]
+        )
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            viewport={"width": 1366, "height": 768},
+            locale="en-IE",
+        )
+        await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        page = await context.new_page()
+
+        # Navigate to login — no pre-loaded cookies, fresh session
+        await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
+        await page.wait_for_timeout(3000)
+
+        # Try auto-fill
+        try:
+            await page.wait_for_selector("#username, input[name='session_key']", timeout=15000)
+            email_sel = "#username" if await page.query_selector("#username") else "input[name='session_key']"
+            pwd_sel   = "#password" if await page.query_selector("#password") else "input[name='session_password']"
+            await page.fill(email_sel, LINKEDIN_EMAIL)
+            await page.wait_for_timeout(600)
+            await page.fill(pwd_sel, LINKEDIN_PASSWORD)
+            await page.wait_for_timeout(600)
+            await page.click("button[type='submit']")
+            print("Credentials submitted...")
+        except Exception:
+            send_telegram("⚠️ Auto-fill failed — please log in manually in the browser window.")
+
+        # Wait for feed (up to 3 min for manual login / 2FA)
+        try:
+            await page.wait_for_url("**/feed**", timeout=180000)
+        except Exception:
+            pass
+
+        if "feed" not in page.url and not page.url.startswith("https://www.linkedin.com/in/"):
+            send_telegram(f"❌ Login failed or timed out (URL: {page.url}). Please try again.")
+            await browser.close()
+            return
+
+        # Save session for future use
+        cookies = await context.cookies()
+        SESSION_FILE.write_text(json.dumps({"cookies": cookies}))
+        send_telegram(f"✅ Logged in! Applying to *{len(approved)} jobs* now in the same session...")
+
+        # Apply without closing the browser
+        applied = 0
+        for job in approved:
+            try:
+                from resume_tailor import tailor_for_job
+                tailored = await tailor_for_job(job, page=page)
+                if tailored:
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.execute("UPDATE jobs SET tailored_resume=? WHERE id=?", (tailored, job["id"]))
+                    conn.commit()
+                    conn.close()
+            except Exception as e:
+                print(f"  Resume tailor error: {e}")
+
+            try:
+                success = await apply_to_job(page, job)
+                status = "applied" if success else "failed"
+            except Exception as e:
+                print(f"  Apply error: {e}")
+                status = "failed"
+                success = False
+            update_job_status(job["id"], status)
+
+            if success:
+                applied += 1
+                send_telegram(f"✅ Applied: *{job['title']}* at {job['company']}")
+                try:
+                    recruiter = await find_and_connect_recruiter(page, job)
+                    if recruiter:
+                        send_telegram(f"🤝 Connection request sent to recruiter at *{job['company']}*")
+                except Exception:
+                    pass
+            else:
+                send_telegram(f"⚠️ Could not apply: *{job['title']}* at {job['company']}")
+
+            await asyncio.sleep(random.randint(8, 15))
+
+        await browser.close()
+    send_telegram(f"🎉 Done! Applied to *{applied}/{len(approved)}* jobs.")
+
+
 if __name__ == "__main__":
     import sys
     cmd = sys.argv[1] if len(sys.argv) > 1 else "find"
@@ -1139,6 +1241,8 @@ if __name__ == "__main__":
         asyncio.run(find_jobs())
     elif cmd == "apply":
         asyncio.run(apply_approved())
+    elif cmd == "loginapply":
+        asyncio.run(login_then_apply())
     elif cmd == "autoapply":
         asyncio.run(auto_apply())
     elif cmd == "savedjobs":
@@ -1153,4 +1257,4 @@ if __name__ == "__main__":
     elif cmd == "retryall":
         n = reset_failed_jobs()
         print(f"Reset {n} failed jobs to approved — applying now...")
-        asyncio.run(apply_approved())
+        asyncio.run(login_then_apply())

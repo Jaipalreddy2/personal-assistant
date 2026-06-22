@@ -487,10 +487,10 @@ def handle_command(text):
     if cmd == "/applyjobs":
         try:
             subprocess.Popen(
-                [PYTHON, str(BASE / "linkedin_apply.py"), "apply"],
+                [PYTHON, str(BASE / "linkedin_apply.py"), "loginapply"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
-            return "🚀 Applying to all jobs you approved... will update you when done!"
+            return "🚀 Opening browser to log in then apply — sign in to LinkedIn when the window appears!"
         except Exception as e:
             return f"⚠️ Error: {e}"
 
@@ -550,7 +550,7 @@ def handle_command(text):
                 "*Job Search:*\n"
                 "/autoapply — find + apply to all new Easy Apply jobs (no approval needed)\n"
                 "/findjobs — search jobs, send each to Telegram for approval\n"
-                "/applyjobs — apply to all approved jobs in the pipeline\n"
+                "/applyjobs — login + apply in one session (most reliable)\n"
                 "/savedjobs — apply to your LinkedIn Saved Jobs\n"
                 "/resetfailed — reset failed jobs so they can be retried\n"
                 "/mystatus — view full application pipeline\n"
