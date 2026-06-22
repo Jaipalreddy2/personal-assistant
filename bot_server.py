@@ -515,6 +515,26 @@ def handle_command(text):
         except Exception as e:
             return f"⚠️ Error: {e}"
 
+    if cmd == "/login":
+        try:
+            subprocess.Popen(
+                [PYTHON, str(BASE / "fresh_login.py")],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            return "🔐 Opening LinkedIn login browser on your PC...\nLog in manually if auto-fill doesn't work. Session will be saved automatically."
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
+    if cmd == "/resetfailed":
+        try:
+            from linkedin_apply import reset_failed_jobs
+            n = reset_failed_jobs()
+            if n:
+                return f"🔄 Reset *{n} failed job(s)* back to approved. Run /applyjobs to retry them."
+            return "✅ No failed jobs to reset."
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
     if cmd == "/digest":
         try:
             subprocess.Popen(
@@ -526,26 +546,27 @@ def handle_command(text):
             return f"⚠️ Error: {e}"
 
     if cmd == "/help":
-        return ("🤖 *Available Commands:*\n\n"
+        return ("🤖 *Bunty — Available Commands:*\n\n"
                 "*Job Search:*\n"
-                "/autoapply — find + apply to all new Easy Apply jobs automatically\n"
-                "/savedjobs — apply to all jobs saved on LinkedIn\n"
-                "/findjobs — search jobs (manual approval mode)\n"
-                "/applyjobs — apply to manually approved jobs\n"
-                "/mystatus — view all applications + pipeline\n"
+                "/autoapply — find + apply to all new Easy Apply jobs (no approval needed)\n"
+                "/findjobs — search jobs, send each to Telegram for approval\n"
+                "/applyjobs — apply to all approved jobs in the pipeline\n"
+                "/savedjobs — apply to your LinkedIn Saved Jobs\n"
+                "/resetfailed — reset failed jobs so they can be retried\n"
+                "/mystatus — view full application pipeline\n"
                 "/update [id] [stage] [note] — update application stage\n"
                 "  Stages: applied phone\\_screen interview offer rejected\n\n"
-                "*Networking:*\n"
-                "/feed — scan LinkedIn feed, approve comments + connections\n\n"
-                "*Learning:*\n"
-                "/digest — fetch today's tech digest (AWS, .NET, Kafka, fintech)\n\n"
+                "*LinkedIn:*\n"
+                "/feed — scan feed, approve Claude comments + connections\n"
+                "/post [topic] — generate + post to LinkedIn\n"
+                "/login — refresh LinkedIn session (opens browser on your PC)\n\n"
                 "*Daily:*\n"
-                "/schedule — today's calendar\n"
-                "/emails — last 2hrs email summary\n"
-                "/jobs — LinkedIn job alerts from Gmail\n"
-                "/stocks — check stock drops now\n"
-                "/post [topic] — post to LinkedIn\n\n"
-                "Or just chat with me normally!")
+                "/schedule — today's Google Calendar\n"
+                "/emails — last 2hrs Gmail summary\n"
+                "/jobs — LinkedIn job alert emails summary\n"
+                "/stocks — check stock watchlist for drops\n"
+                "/digest — today's tech news digest\n\n"
+                "Or just chat — I know your full profile and career goals!")
 
     return None
 

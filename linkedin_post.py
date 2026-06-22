@@ -15,19 +15,42 @@ ANTHROPIC_KEY  = config.get("ANTHROPIC_API_KEY")
 TELEGRAM_TOKEN = config.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT  = config.get("TELEGRAM_CHAT_ID")
 
-PERSON_URN     = "urn:li:person:1W-w0LYy9S"
-
-
 def get_token():
     config = dotenv_values(Path.home() / ".env")
     return config.get("LINKEDIN_ACCESS_TOKEN", "").strip("'")
 
 
+def get_person_urn():
+    """Return PERSON_URN from .env, or fetch it from LinkedIn API if not set."""
+    cfg = dotenv_values(Path.home() / ".env")
+    urn = cfg.get("LINKEDIN_PERSON_URN", "").strip("'")
+    if urn:
+        return urn
+    # Fetch from userinfo endpoint
+    token = get_token()
+    if not token:
+        return None
+    try:
+        resp = requests.get(
+            "https://api.linkedin.com/v2/userinfo",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        sub = resp.json().get("sub", "")  # sub is the person ID
+        if sub:
+            return f"urn:li:person:{sub}"
+    except Exception:
+        pass
+    return None
+
+
 def post_to_linkedin(text):
     """Post a text update to LinkedIn."""
     token = get_token()
+    person_urn = get_person_urn()
+    if not token or not person_urn:
+        return False, {"error": "Missing LINKEDIN_ACCESS_TOKEN or LINKEDIN_PERSON_URN — run python linkedin_auth.py first"}
     payload = {
-        "author": PERSON_URN,
+        "author": person_urn,
         "lifecycleState": "PUBLISHED",
         "specificContent": {
             "com.linkedin.ugc.ShareContent": {
@@ -59,25 +82,27 @@ def generate_post_with_claude(topic):
         max_tokens=512,
         messages=[{
             "role": "user",
-            "content": f"""Write a professional LinkedIn post for Akshay M, a software developer
-specializing in AWS, DevOps, and Python. The post should be about: {topic}
+            "content": f"""Write a professional LinkedIn post for Jaipal Kasi Reddy, an MSc Cloud Computing
+student at National College of Ireland, Dublin. He specialises in AWS, Docker, Kubernetes,
+CI/CD pipelines (GitHub Actions), Python, and Linux. He's actively seeking graduate and
+internship roles in Cloud Engineering and DevOps.
+
+The post should be about: {topic}
 
 Guidelines:
 - 150-200 words max
-- Professional but conversational tone
-- Add 3-4 relevant hashtags at the end
+- Professional but conversational tone, first-person
+- Add 3-5 relevant hashtags at the end (e.g. #CloudComputing #DevOps #AWS #Kubernetes)
 - No emojis overload — keep it clean
-- Sound authentic, not corporate"""
+- Sound authentic, like a passionate student sharing a genuine insight"""
         }]
     )
     return message.content[0].text
 
 
 def send_telegram(message):
-    requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={"chat_id": TELEGRAM_CHAT, "text": message, "parse_mode": "Markdown"}
-    )
+    from telegram_topics import send_jobs
+    send_jobs(message)
 
 
 def post_from_topic(topic):

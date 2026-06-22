@@ -50,6 +50,10 @@ async def relogin():
             try:
                 data = json.loads(SESSION.read_text())
                 cookies = data.get("cookies", data) if isinstance(data, dict) else data
+                # Fix domain: li_at must be on .linkedin.com not .www.linkedin.com
+                for c in cookies:
+                    if c.get("domain", "").startswith(".www."):
+                        c["domain"] = c["domain"].replace(".www.", ".")
                 if cookies:
                     await context.add_cookies(cookies)
             except Exception:
@@ -57,15 +61,16 @@ async def relogin():
 
         page = await context.new_page()
 
-        # Navigate to login page and let LinkedIn decide where to send us.
-        # If remember-me cookies are valid, LinkedIn auto-redirects to /feed.
-        # If fully expired, the login form (#username) will appear.
-        print("Checking session via /login redirect...")
+        # Navigate directly to /feed — if cookies are valid LinkedIn serves it.
+        # Avoid /login as it can create redirect loops with valid cookies loaded.
+        print("Checking session by navigating to /feed...")
         notify_telegram("Checking LinkedIn session...")
-        await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded")
-        # Wait up to 8 seconds for LinkedIn to settle (auto-redirect takes ~3-5s)
-        await page.wait_for_timeout(5000)
-        print(f"After /login nav, URL: {page.url}")
+        try:
+            await page.goto("https://www.linkedin.com/feed", wait_until="domcontentloaded", timeout=20000)
+        except Exception as e:
+            print(f"Feed nav error: {e}")
+        await page.wait_for_timeout(4000)
+        print(f"After /feed nav, URL: {page.url}")
 
         if page.url.startswith("https://www.linkedin.com/feed") or \
            page.url.startswith("https://www.linkedin.com/mynetwork"):
@@ -76,22 +81,28 @@ async def relogin():
             await browser.close()
             return True
 
-        # Still on login page — need to fill credentials
-        print("Session fully expired. Filling credentials...")
+        # Not on feed — need to log in
+        print("Session expired. Navigating to /login to fill credentials...")
         notify_telegram("Refreshing LinkedIn session — logging in now...")
 
         try:
-            await page.wait_for_selector("#username", timeout=8000)
-            await page.fill("#username", EMAIL)
+            await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=20000)
+            await page.wait_for_timeout(3000)
+        except Exception as e:
+            print(f"Login page nav error: {e}")
+
+        try:
+            await page.wait_for_selector("#username, input[name='session_key']", timeout=15000)
+            email_sel = "#username" if await page.query_selector("#username") else "input[name='session_key']"
+            pwd_sel   = "#password" if await page.query_selector("#password") else "input[name='session_password']"
+            await page.fill(email_sel, EMAIL)
             await page.wait_for_timeout(400)
-            await page.fill("#password", PASSWORD)
+            await page.fill(pwd_sel, PASSWORD)
             await page.wait_for_timeout(400)
             await page.click("button[type=submit]")
-            # Wait for LinkedIn to process and redirect
             await page.wait_for_timeout(4000)
             print(f"After submit, URL: {page.url}")
         except Exception as e:
-            # #username not found — maybe already redirected to feed
             if page.url.startswith("https://www.linkedin.com/feed"):
                 print("Already on feed after navigation.")
             else:

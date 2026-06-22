@@ -157,17 +157,18 @@ def score_post_with_claude(post):
             max_tokens=10,
             messages=[{
                 "role": "user",
-                "content": f"""Score this LinkedIn post 1-10 for a software engineer interested in:
-.NET Core, AWS, DevOps, Kubernetes, Kafka, cloud-native architecture, ML/AI, fintech, career growth.
+                "content": f"""Score this LinkedIn post 1-10 for a Cloud/DevOps engineering student interested in:
+AWS, Docker, Kubernetes, CI/CD, GitHub Actions, Python, Linux, cloud-native architecture,
+graduate career advice, software engineering, and infrastructure automation.
 
 Post by {post['author_name']}:
 {post['post_text'][:500]}
 
 Reply with ONLY a number 1-10.
-Score 8-10 = deep technical insight, lessons learned, architecture decisions, real experience.
-Score 5-7 = useful but generic, surface-level tips, moderately relevant.
-Score 1-4 = promotional content, job postings, recruiters advertising roles, irrelevant topics.
-IMPORTANT: Score 1 if this is a job posting, hiring announcement, or recruiter message."""
+Score 8-10 = deep technical insight, lessons learned, real experience, architecture decisions.
+Score 5-7 = useful but generic tips, moderately relevant.
+Score 1-4 = promotional content, irrelevant topics, pure motivational fluff.
+IMPORTANT: Score 1 if this is a job posting, hiring announcement, or recruiter advertisement."""
             }]
         )
         return int(response.content[0].text.strip().split()[0])
@@ -184,8 +185,9 @@ def generate_comment(post):
         messages=[{
             "role": "user",
             "content": f"""Write a short, genuine LinkedIn comment (2-3 sentences) for this post.
-The commenter is Akshay, a software engineer with expertise in .NET Core, AWS, Kafka, and Kubernetes.
-Be specific to the post content. Add real value or a relevant insight. Sound human.
+The commenter is Jaipal Kasi Reddy, an MSc Cloud Computing student at National College of Ireland,
+Dublin, with hands-on experience in AWS, Docker, Kubernetes, CI/CD pipelines, and Python automation.
+Be specific to the post content. Add real value or a relevant insight. Sound human and enthusiastic.
 Do NOT start with "Great post!" or "Excellent!" — be direct and thoughtful.
 
 Post by {post['author_name']}:
@@ -213,11 +215,12 @@ async def load_session(context):
 
 
 SEARCH_QUERIES = [
-    ".NET Core AWS microservices cloud",
-    "Kubernetes DevOps Terraform engineering",
-    "software engineer career growth fintech",
-    "Apache Kafka event-driven architecture",
-    "machine learning AI cloud native",
+    "AWS cloud engineering DevOps",
+    "Kubernetes Docker container orchestration",
+    "CI/CD GitHub Actions DevOps pipeline",
+    "cloud computing graduate career Ireland",
+    "Python automation infrastructure engineering",
+    "cloud native software engineering tips",
 ]
 
 
@@ -506,8 +509,8 @@ async def connect_with_author(page, post):
                 first_name = post["author_name"].split()[0]
                 note = (
                     f"Hi {first_name}, I came across your recent post and found it really insightful. "
-                    f"I'm a software engineer working with .NET Core, AWS, and cloud-native systems. "
-                    f"Would love to connect!"
+                    f"I'm an MSc Cloud Computing student at NCI Dublin, working with AWS, Docker, "
+                    f"Kubernetes, and CI/CD pipelines. Would love to connect!"
                 )
                 await note_field.fill(note[:300])
 
@@ -546,8 +549,8 @@ async def handle_feed_action(post_id, action):
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
+            headless=False,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--start-maximized"]
         )
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -623,8 +626,8 @@ async def scan_feed():
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
+            headless=False,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--start-maximized"]
         )
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",

@@ -81,12 +81,18 @@ def run():
     set_key(str(ENV_FILE), "LINKEDIN_ACCESS_TOKEN", access_token)
     print("✅ LinkedIn connected! Access token saved to .env")
 
-    # Verify by fetching profile
+    # Verify by fetching profile and save PERSON_URN
     profile = requests.get(
         "https://api.linkedin.com/v2/userinfo",
         headers={"Authorization": f"Bearer {access_token}"}
     ).json()
     print(f"Logged in as: {profile.get('name')} ({profile.get('email')})")
+
+    sub = profile.get("sub", "")
+    if sub:
+        person_urn = f"urn:li:person:{sub}"
+        set_key(str(ENV_FILE), "LINKEDIN_PERSON_URN", person_urn)
+        print(f"✅ PERSON_URN saved: {person_urn}")
 
 
 if __name__ == "__main__":
