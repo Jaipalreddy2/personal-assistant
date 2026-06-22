@@ -8,6 +8,7 @@ LinkedIn Easy Apply Bot
 
 import asyncio
 import json
+import random
 import sqlite3
 import requests
 import time
@@ -41,6 +42,13 @@ JOB_KEYWORDS = [
     "Associate DevOps Engineer",
     "DevOps Engineer",
     "Cloud Engineer",
+    "Junior AWS Engineer",
+    "Graduate Cloud Computing",
+    "Junior Python Developer",
+    "Cloud Infrastructure Engineer",
+    "Junior Kubernetes Engineer",
+    "Graduate IT Engineer",
+    "Junior Site Reliability Engineer",
 ]
 
 # Keywords that indicate a role is suitable for freshers/graduates
@@ -77,6 +85,7 @@ LINKEDIN_PASSWORD = config.get("LINKEDIN_PASSWORD")
 LOCATION     = "Dublin, Ireland"
 DB_PATH      = Path(__file__).parent / "applied_jobs.db"
 SESSION_FILE = Path(__file__).parent / "linkedin_session.json"
+RESUME_PDF   = Path(__file__).parent / "Jaipal_Kasi_Reddy_Resume.pdf"
 
 
 # ── Database ──────────────────────────────────────────────────────────────────
@@ -161,6 +170,16 @@ def already_seen(job_id):
     return row is not None
 
 
+def reset_failed_jobs():
+    """Reset all failed jobs back to approved so they get retried."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("UPDATE jobs SET status='approved' WHERE status='failed'")
+    count = conn.execute("SELECT changes()").fetchone()[0]
+    conn.commit()
+    conn.close()
+    return count
+
+
 # ── Telegram ──────────────────────────────────────────────────────────────────
 
 def send_telegram(text, reply_markup=None):
@@ -223,6 +242,10 @@ async def load_session(context):
     if SESSION_FILE.exists():
         data = json.loads(SESSION_FILE.read_text())
         cookies = data["cookies"] if isinstance(data, dict) and "cookies" in data else data
+        # Fix domain: li_at must be on .linkedin.com not .www.linkedin.com
+        for c in cookies:
+            if c.get("domain", "").startswith(".www."):
+                c["domain"] = c["domain"].replace(".www.", ".")
         await context.add_cookies(cookies)
         return True
     return False
@@ -278,20 +301,43 @@ async def search_jobs(page, keyword):
         f"&f_AL=true"
         f"&sortBy=DD"
     )
-    await page.goto(url, wait_until="domcontentloaded")
+    try:
+        await page.goto(url, wait_until="domcontentloaded")
+    except Exception as e:
+        print(f"  Navigation error for '{keyword}': {e}")
+        return []
+
+    # If LinkedIn redirected us to login/authwall, session is expired
+    if "login" in page.url or "authwall" in page.url or "checkpoint" in page.url:
+        print(f"  Session expired during search (redirected to {page.url})")
+        return []
+
     # Wait for job cards to render (up to 10s), then scroll to load more
     try:
         await page.wait_for_selector("a[href*='/jobs/view/']", timeout=10000)
     except Exception:
         pass
     await page.wait_for_timeout(3000)
-    await page.evaluate("window.scrollBy(0, 600)")
+
+    # Guard against navigation that may have happened during the wait
+    if "login" in page.url or "authwall" in page.url or "checkpoint" in page.url:
+        print(f"  Redirected mid-search to {page.url}")
+        return []
+
+    try:
+        await page.evaluate("window.scrollBy(0, 600)")
+    except Exception as e:
+        print(f"  Scroll failed (page navigated away): {e}")
+        return []
     await page.wait_for_timeout(2000)
 
     jobs = []
     seen_ids = set()
 
-    links = await page.query_selector_all("a[href*='/jobs/view/']")
+    try:
+        links = await page.query_selector_all("a[href*='/jobs/view/']")
+    except Exception:
+        return []
 
     for link in links[:20]:
         try:
@@ -337,6 +383,8 @@ async def search_jobs(page, keyword):
                     location = (await location_el.inner_text()).strip().split("\n")[0]
 
             full_url = f"https://www.linkedin.com{href}" if href.startswith("/") else href
+            # Normalise to www subdomain so session cookies always match
+            full_url = full_url.replace("ie.linkedin.com", "www.linkedin.com")
 
             jobs.append({
                 "id":       job_id,
@@ -373,11 +421,57 @@ async def dismiss_cookie_banner(page):
         pass
 
 
+async def _upload_resume_if_needed(page):
+    """If the Easy Apply modal has a file-upload input, attach the PDF resume."""
+    if not RESUME_PDF.exists():
+        return
+    try:
+        file_inputs = await page.query_selector_all("input[type='file']")
+        for fi in file_inputs:
+            try:
+                await fi.set_input_files(str(RESUME_PDF))
+                await page.wait_for_timeout(800)
+                print(f"  Uploaded resume: {RESUME_PDF.name}")
+                return
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
 async def apply_to_job(page, job):
     """Apply to a single Easy Apply job."""
     try:
-        await page.goto(job["url"], wait_until="domcontentloaded")
-        await page.wait_for_timeout(3000)
+        import random
+
+        # Use LinkedIn's jobs search with currentJobId — loads the job in the
+        job_id = job["id"]
+        # Try search URL first, fall back to direct view URL
+        urls_to_try = [
+            f"https://www.linkedin.com/jobs/search/?currentJobId={job_id}",
+            f"https://www.linkedin.com/jobs/view/{job_id}/",
+        ]
+
+        nav_ok = False
+        for url_attempt, nav_url in enumerate(urls_to_try):
+            for attempt in range(2):
+                try:
+                    await page.goto(nav_url, wait_until="domcontentloaded", timeout=30000)
+                    nav_ok = True
+                    break
+                except Exception as nav_err:
+                    wait = 10 + random.randint(5, 10)
+                    print(f"  Nav error (url {url_attempt+1} attempt {attempt+1}): {nav_err} — waiting {wait}s...")
+                    await page.wait_for_timeout(wait * 1000)
+            if nav_ok:
+                break
+
+        if not nav_ok:
+            print(f"  Nav failed for all URLs for {job['title']}")
+            return False
+
+        # Random human-like delay
+        await page.wait_for_timeout(2000 + random.randint(500, 2000))
 
         # Dismiss cookie consent banner before looking for Easy Apply
         await dismiss_cookie_banner(page)
@@ -407,24 +501,69 @@ async def apply_to_job(page, job):
                 apply_btn = None
 
         if not apply_btn:
-            all_btns = await page.evaluate("() => Array.from(document.querySelectorAll('button')).map(b => b.getAttribute('aria-label') || b.innerText.trim()).filter(t => t).slice(0, 15)")
-            print(f"  No Easy Apply button for {job['title']}. Buttons: {all_btns}")
+            # No Easy Apply — look for a plain "Apply" link/button that goes external
+            ext_url = await page.evaluate("""() => {
+                // Check buttons
+                for (const btn of document.querySelectorAll('button')) {
+                    const t = (btn.innerText || btn.getAttribute('aria-label') || '').trim().toLowerCase();
+                    if (t === 'apply' || t === 'apply now' || t === 'apply on company website') {
+                        btn.click();
+                        return 'clicked';
+                    }
+                }
+                // Check anchor tags
+                for (const a of document.querySelectorAll('a')) {
+                    const t = (a.innerText || a.getAttribute('aria-label') || '').trim().toLowerCase();
+                    const href = a.href || '';
+                    if ((t === 'apply' || t === 'apply now' || t === 'apply on company website')
+                        && href && !href.includes('linkedin.com')) {
+                        return href;
+                    }
+                }
+                return null;
+            }""")
+
+            if ext_url == 'clicked':
+                # Button clicked — wait for new tab or navigation
+                await page.wait_for_timeout(3000)
+                ext_url = page.url if 'linkedin.com' not in page.url else None
+
+            if ext_url and 'linkedin.com' not in ext_url:
+                print(f"  External apply link found: {ext_url[:80]}")
+                try:
+                    from external_apply import apply_external
+                    return await apply_external(page, ext_url, job)
+                except Exception as e:
+                    print(f"  External apply error: {e}")
+                    return False
+
+            print(f"  No apply button found for {job['title']} — skipping")
             return False
 
         print(f"  Found Easy Apply button for {job['title']}, clicking...")
         await apply_btn.click()
         await page.wait_for_timeout(2000)
 
-        # Skip if redirected off LinkedIn (third-party application site)
+        # Redirected to external ATS — run the matching handler
         if 'linkedin.com' not in page.url:
-            print(f"  Redirected to third-party site: {page.url} — skipping")
-            return False
+            ext_url = page.url
+            print(f"  Redirected to external site: {ext_url} — running external handler...")
+            try:
+                from external_apply import apply_external
+                return await apply_external(page, ext_url, job)
+            except Exception as e:
+                print(f"  External apply error: {e}")
+                return False
+
+        # Upload PDF resume if the modal has a file input field
+        await _upload_resume_if_needed(page)
 
         # Click through all Easy Apply steps using LinkedIn's pre-filled data
         review_count = 0
         for step in range(30):
             await dismiss_cookie_banner(page)
             await page.wait_for_timeout(1500)
+            await _upload_resume_if_needed(page)
 
             # After hitting Review twice without Submit, scroll down and look harder for Submit
             if review_count >= 2:
@@ -549,12 +688,12 @@ async def find_jobs():
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"]
+            headless=False,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage", "--start-maximized"]
         )
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            viewport={"width": 1366, "height": 768},
         )
         await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         page = await context.new_page()
@@ -582,9 +721,17 @@ async def find_jobs():
                 page = await context.new_page()
                 await load_session(context)
 
+        session_expired = False
         for keyword in JOB_KEYWORDS:
             print(f"Searching: {keyword}...")
             jobs = await search_jobs(page, keyword)
+
+            # search_jobs returns [] on redirect or navigation error — check if session died
+            if not jobs and any(s in page.url for s in ("login", "authwall", "checkpoint", "uas/")):
+                print("Session expired mid-search — triggering re-login...")
+                session_expired = True
+                break
+
             for job in jobs:
                 if not already_seen(job["id"]):
                     if is_fresher_role(job["title"]):
@@ -600,6 +747,10 @@ async def find_jobs():
                     await asyncio.sleep(1)
 
         await browser.close()
+
+        if session_expired:
+            await login_linkedin_visible()
+            send_telegram("🔄 Session refreshed — please re-run /findjobs to continue the job search.")
 
     if new_jobs == 0:
         send_telegram("💼 *Job Search Complete*\nNo new Easy Apply jobs found matching your profile.")
@@ -622,26 +773,54 @@ async def apply_approved(from_find=False):
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"]
+            headless=False,
+            args=[
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--start-maximized",
+            ]
         )
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            viewport={"width": 1366, "height": 768},
         )
         await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         page = await context.new_page()
 
         await load_session(context)
-        await page.goto("https://www.linkedin.com/feed")
-        await page.wait_for_timeout(2000)
+
+        # Try warming up the session with progressively simpler URLs
+        session_ok = False
+        for warmup_url, wu_wait in [
+            ("https://www.linkedin.com/", "commit"),
+            ("https://www.linkedin.com/jobs/", "commit"),
+            ("https://www.linkedin.com/feed", "domcontentloaded"),
+        ]:
+            try:
+                await page.goto(warmup_url, wait_until=wu_wait, timeout=30000)
+                await page.wait_for_timeout(3000)
+                if "login" not in page.url and "authwall" not in page.url and "checkpoint" not in page.url:
+                    session_ok = True
+                    print(f"Session warmed up via {warmup_url} → {page.url}")
+                    break
+            except Exception as e:
+                print(f"Warmup nav error ({warmup_url}): {e}")
+
+        if not session_ok:
+            send_telegram("❌ LinkedIn session expired — please run `python fresh_login.py` then retry `/applyjobs`.")
+            await browser.close()
+            return
+
+        # Allow LinkedIn's JS anti-bot checks to complete
+        await page.wait_for_timeout(5000)
 
         applied = 0
         for job in approved:
-            # 1. Tailor resume before applying
+            # 1. Tailor resume (reuse current page — no second browser opened)
             try:
                 from resume_tailor import tailor_for_job
-                tailored = await tailor_for_job(job, str(SESSION_FILE))
+                tailored = await tailor_for_job(job, page=page)
                 if tailored:
                     # Save to DB
                     conn = sqlite3.connect(DB_PATH)
@@ -684,9 +863,9 @@ async def apply_approved(from_find=False):
                 except Exception as e:
                     print(f"  Recruiter outreach error: {e}")
             else:
-                send_telegram(f"⚠️ Skipped *{job['title']}* at {job['company']} — redirects to external site.")
+                send_telegram(f"⚠️ Could not apply: *{job['title']}* at {job['company']}")
 
-            await asyncio.sleep(5)
+            await asyncio.sleep(random.randint(10, 20))
 
         await browser.close()
 
@@ -796,9 +975,9 @@ async def auto_apply():
                 except Exception as e:
                     print(f"  Recruiter error: {e}")
             else:
-                send_telegram(f"⚠️ Skipped *{job['title']}* at {job['company']} — redirects to external site.")
+                send_telegram(f"⚠️ Could not apply: *{job['title']}* at {job['company']}")
 
-            await asyncio.sleep(5)
+            await asyncio.sleep(random.randint(10, 20))
 
         await browser.close()
     send_telegram(f"🎉 Done! *{applied}/{len(new_jobs)}* applications submitted.")
@@ -968,3 +1147,10 @@ if __name__ == "__main__":
         poll_approvals()
     elif cmd == "login":
         asyncio.run(do_login())
+    elif cmd == "resetfailed":
+        n = reset_failed_jobs()
+        print(f"Reset {n} failed jobs to approved.")
+    elif cmd == "retryall":
+        n = reset_failed_jobs()
+        print(f"Reset {n} failed jobs to approved — applying now...")
+        asyncio.run(apply_approved())
