@@ -9,6 +9,10 @@ linkedin_session.json
 bot.pid
 seen_emails.json
 
+# Browser profiles (contain session cookies — never commit)
+linkedin_chrome_profile/
+indeed_chrome_profile/
+
 # Databases (personal data)
 *.db
 

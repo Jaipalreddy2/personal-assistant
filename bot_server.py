@@ -466,11 +466,51 @@ def handle_command(text):
 
     if cmd == "/findjobs":
         try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
             subprocess.Popen(
-                [PYTHON, str(BASE / "linkedin_apply.py"), "find"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                [python_exe, "-u", str(BASE / "linkedin_apply.py"), "find"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
             return "🔍 Searching LinkedIn for Easy Apply jobs matching your profile...\nResults will appear below — tap ✅ Apply or ❌ Skip on each one."
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
+    if cmd == "/findindeed":
+        try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
+            subprocess.Popen(
+                [python_exe, "-u", str(BASE / "indeed_jobs.py"), "find"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            return "🔍 Searching Indeed for jobs in Dublin... results coming shortly!\nTap ✅ Apply or ❌ Skip on each one."
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
+    if cmd == "/applyindeed":
+        try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
+            subprocess.Popen(
+                [python_exe, "-u", str(BASE / "indeed_jobs.py"), "apply"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            return "🚀 Applying to approved Indeed jobs now... updates coming shortly!"
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
+    if cmd == "/login-indeed":
+        try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            subprocess.Popen(
+                [python_exe, str(BASE / "indeed_jobs.py"), "login"],
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            return "🔐 Opening Indeed login browser on your PC...\nCredentials will be auto-filled. Complete any 2FA if prompted."
         except Exception as e:
             return f"⚠️ Error: {e}"
 

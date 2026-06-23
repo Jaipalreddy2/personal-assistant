@@ -128,6 +128,7 @@ def init_db():
         ("notes",           "TEXT"),
         ("tailored_resume", "TEXT"),
         ("recruiter",       "TEXT"),
+        ("source",          "TEXT DEFAULT 'linkedin'"),
     ]:
         try:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {definition}")
