@@ -486,20 +486,25 @@ def handle_command(text):
 
     if cmd == "/applyjobs":
         try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
             subprocess.Popen(
-                [PYTHON, str(BASE / "linkedin_apply.py"), "loginapply"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                [python_exe, "-u", str(BASE / "linkedin_apply.py"), "loginapply"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
-            return "🚀 Opening browser to log in then apply — sign in to LinkedIn when the window appears!"
+            return "🚀 Applying to approved jobs now... results will arrive here shortly!"
         except Exception as e:
             return f"⚠️ Error: {e}"
 
     if cmd == "/autoapply":
         try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
             log_file = open(BASE / "bot.log", "a")
             subprocess.Popen(
-                [PYTHON, "-u", str(BASE / "linkedin_apply.py"), "autoapply"],
-                stdout=log_file, stderr=log_file
+                [python_exe, "-u", str(BASE / "linkedin_apply.py"), "autoapply"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
             return "🤖 Auto-applying to all new Easy Apply jobs — no approval needed! Updates coming shortly."
         except Exception as e:
@@ -507,9 +512,12 @@ def handle_command(text):
 
     if cmd == "/savedjobs":
         try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
             subprocess.Popen(
-                [PYTHON, str(BASE / "linkedin_apply.py"), "savedjobs"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                [python_exe, "-u", str(BASE / "linkedin_apply.py"), "savedjobs"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
             return "🔖 Applying to your LinkedIn Saved Jobs now... results coming shortly!"
         except Exception as e:
