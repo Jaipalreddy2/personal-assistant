@@ -718,17 +718,15 @@ def start_startup_login():
 
 
 def start_linkedin_keepalive():
-    """Start keepalive daemon — pings LinkedIn & Indeed every 30 min to prevent session expiry."""
-    try:
-        python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
-        subprocess.Popen(
-            [python_exe, str(BASE / "linkedin_keepalive.py")],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-        print(f"[{datetime.now().strftime('%H:%M')}] Keepalive daemon started.")
-    except Exception as e:
-        print(f"Keepalive start error: {e}")
+    """Keepalive loop in a background thread — no subprocess, no terminal window."""
+    def _run():
+        try:
+            from linkedin_keepalive import keepalive_loop
+            asyncio.run(keepalive_loop())
+        except Exception as e:
+            print(f"Keepalive error: {e}")
+    threading.Thread(target=_run, daemon=True).start()
+    print(f"[{datetime.now().strftime('%H:%M')}] Keepalive daemon started.")
 
 
 def run():

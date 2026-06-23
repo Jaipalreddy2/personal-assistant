@@ -87,4 +87,5 @@ async def keepalive_loop():
         await ping_indeed()
 
 
-asyncio.run(keepalive_loop())
+if __name__ == "__main__":
+    asyncio.run(keepalive_loop())
