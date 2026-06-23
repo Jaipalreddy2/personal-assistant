@@ -13,7 +13,6 @@ import json
 import random
 import sqlite3
 import requests
-import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode
@@ -195,7 +194,7 @@ def send_job_for_approval(job):
     send_telegram(text, reply_markup=markup)
 
 
-# ── Job search via RSS ─────────────────────────────────────────────────────────
+# ── Job search via Playwright ──────────────────────────────────────────────────
 
 def _is_relevant(title):
     t = title.lower()
@@ -206,88 +205,101 @@ def _is_relevant(title):
     return True
 
 
-def fetch_indeed_rss(keyword, days=14):
-    params = {
-        "q":       keyword,
-        "l":       LOCATION,
-        "sort":    "date",
-        "fromage": str(days),
-        "limit":   "25",
-    }
-    url = "https://ie.indeed.com/rss?" + urlencode(params)
+async def scrape_indeed_keyword(page, keyword, days=14):
+    """Scrape Indeed search results for one keyword. Returns list of job dicts."""
+    params = urlencode({"q": keyword, "l": LOCATION, "sort": "date", "fromage": str(days)})
+    url = f"https://ie.indeed.com/jobs?{params}"
+
     try:
-        resp = requests.get(url, headers={"User-Agent": _UA}, timeout=15)
-        resp.raise_for_status()
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
     except Exception as e:
-        print(f"  RSS fetch failed for '{keyword}': {e}")
+        print(f"  Nav error for '{keyword}': {e}")
         return []
 
+    await page.wait_for_timeout(3000)
+
+    # Dismiss cookie banner if present
     try:
-        root = ET.fromstring(resp.content)
-    except ET.ParseError as e:
-        print(f"  XML parse error for '{keyword}': {e}")
-        return []
+        await page.evaluate("""() => {
+            for (const btn of document.querySelectorAll('button')) {
+                const t = (btn.innerText || '').trim().toLowerCase();
+                if (t === 'accept' || t === 'accept all' || t === 'i accept') { btn.click(); return; }
+            }
+        }""")
+        await page.wait_for_timeout(800)
+    except Exception:
+        pass
 
-    channel = root.find("channel")
-    if channel is None:
-        return []
+    await page.wait_for_timeout(1500)
 
-    jobs = []
-    for item in channel.findall("item"):
-        try:
-            raw_title = (item.findtext("title") or "").strip()
-            link      = (item.findtext("link") or "").strip()
-            guid      = (item.findtext("guid") or link).strip()
+    jobs = await page.evaluate("""() => {
+        const results = [];
+        // data-jk is on the <a> job title link; parent <li> has company/location
+        const jobLinks = document.querySelectorAll('a[data-jk]');
+        for (const link of jobLinks) {
+            try {
+                const jk = link.getAttribute('data-jk');
+                if (!jk) continue;
 
-            job_key = None
-            for u in [link, guid]:
-                if "jk=" in u:
-                    job_key = u.split("jk=")[1].split("&")[0]
-                    break
-            if not job_key:
-                continue
+                // Title is in span[title] inside the link
+                const titleEl = link.querySelector('span[title]') || link.querySelector('span');
+                const title = titleEl ? (titleEl.getAttribute('title') || titleEl.innerText || '').trim() : '';
+                if (!title) continue;
 
-            # Indeed title is "Job Title - Company - Location"
-            parts   = [p.strip() for p in raw_title.split(" - ")]
-            title   = parts[0] if parts else raw_title
-            company = parts[1] if len(parts) >= 2 else "Unknown"
-            loc     = parts[2] if len(parts) >= 3 else LOCATION
+                const li = link.closest('li');
+                if (!li) continue;
 
-            jobs.append({
-                "id":       f"indeed_{job_key}",
-                "title":    title,
-                "company":  company,
-                "location": loc,
-                "url":      f"https://ie.indeed.com/viewjob?jk={job_key}",
-                "source":   "indeed",
-            })
-        except Exception:
-            continue
+                const compEl = li.querySelector('[data-testid="company-name"]');
+                const company = compEl ? compEl.innerText.trim() : 'Unknown';
 
+                const locEl = li.querySelector('[data-testid="text-location"]');
+                const location = locEl ? locEl.innerText.trim() : 'Dublin, Ireland';
+
+                results.push({
+                    id: 'indeed_' + jk,
+                    title: title,
+                    company: company,
+                    location: location.split('\\n')[0].trim(),
+                    url: 'https://ie.indeed.com/viewjob?jk=' + jk,
+                    source: 'indeed',
+                });
+            } catch(e) {}
+        }
+        return results;
+    }""")
+
+    print(f"  Found {len(jobs)} cards for '{keyword}'")
     return jobs
 
 
 async def find_jobs():
-    """Search all keywords via RSS, save new jobs, send to Telegram for approval."""
+    """Search all keywords via Playwright, save new jobs, send to Telegram for approval."""
     init_db()
     all_new = []
     seen_this_run = set()
 
-    for kw in JOB_KEYWORDS:
-        print(f"Searching Indeed: {kw}")
-        jobs = fetch_indeed_rss(kw)
-        for job in jobs:
-            if job["id"] in seen_this_run:
-                continue
-            seen_this_run.add(job["id"])
-            if already_seen(job["id"]):
-                continue
-            if not _is_relevant(job["title"]):
-                print(f"  Skipping (not relevant): {job['title']}")
-                continue
-            save_job(job)
-            all_new.append(job)
-        await asyncio.sleep(1)
+    async with async_playwright() as p:
+        # Use persistent profile so Indeed sees a real browser fingerprint
+        context = await get_indeed_context(p, headless=True)
+        page = await context.new_page()
+
+        for kw in JOB_KEYWORDS:
+            print(f"Searching Indeed: {kw}")
+            jobs = await scrape_indeed_keyword(page, kw)
+            for job in jobs:
+                if job["id"] in seen_this_run:
+                    continue
+                seen_this_run.add(job["id"])
+                if already_seen(job["id"]):
+                    continue
+                if not _is_relevant(job["title"]):
+                    print(f"  Skipping: {job['title']}")
+                    continue
+                save_job(job)
+                all_new.append(job)
+            await asyncio.sleep(random.randint(2, 4))
+
+        await context.close()
 
     if not all_new:
         send_telegram("🔍 *Indeed Search*: No new jobs found this time.")
