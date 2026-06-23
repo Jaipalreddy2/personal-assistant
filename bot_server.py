@@ -686,6 +686,22 @@ def _save_last_email_time():
     LAST_EMAIL_FILE.write_text(datetime.now(timezone.utc).isoformat())
 
 
+# Counts down from 2 (login + emails); when both done, console is hidden
+_startup_remaining = [2]
+_startup_lock = threading.Lock()
+
+
+def _startup_task_done():
+    """Called by each startup task when finished. Hides console after all complete."""
+    with _startup_lock:
+        _startup_remaining[0] -= 1
+        if _startup_remaining[0] <= 0 and sys.platform == "win32":
+            import ctypes
+            hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+
+
 def startup_emails():
     """On startup, fetch and send new emails in a background thread (no window)."""
     def _run():
@@ -702,11 +718,13 @@ def startup_emails():
                 send_chat("📭 No new emails since last check.")
         except Exception as e:
             print(f"Startup emails error: {e}")
+        finally:
+            _startup_task_done()
     threading.Thread(target=_run, daemon=True).start()
 
 
 def start_startup_login():
-    """On bot start: check + auto-restore sessions, then close the terminal window."""
+    """On bot start: check + auto-restore sessions in a background thread."""
     def _run():
         try:
             from startup_login import main as login_main
@@ -715,10 +733,7 @@ def start_startup_login():
             import traceback
             print(f"Startup login error: {e}\n{traceback.format_exc()}")
         finally:
-            # Detach from console — window closes, bot keeps running in background
-            if sys.platform == "win32":
-                import ctypes
-                ctypes.windll.kernel32.FreeConsole()
+            _startup_task_done()
     threading.Thread(target=_run, daemon=True).start()
     print(f"[{datetime.now().strftime('%H:%M')}] Startup login check launched.")
 
