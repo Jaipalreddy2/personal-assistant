@@ -11,7 +11,7 @@ import json
 import os
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from dotenv import dotenv_values
 from calendar_bot import get_calendar_summary
@@ -23,6 +23,7 @@ import subprocess
 # Runtime paths — resolved dynamically so the repo works on any machine
 BASE       = Path(__file__).parent
 PYTHON     = sys.executable
+LAST_EMAIL_FILE = BASE / "last_email_check.txt"
 STOCKS_DIR = Path.home() / "stockspredictor"
 
 # Prevent duplicate instances
@@ -417,8 +418,12 @@ def handle_command(text):
 
     if cmd == "/emails":
         try:
-            from email_bot import fetch_recent_emails, summarize_with_claude
-            emails = fetch_recent_emails(hours=2)
+            from email_bot import fetch_emails_since_dt, summarize_with_claude
+            since_dt = _load_last_email_time()
+            emails = fetch_emails_since_dt(since_dt)
+            _save_last_email_time()
+            if not emails:
+                return "📭 No new emails since last check."
             return summarize_with_claude(emails)
         except Exception as e:
             return f"⚠️ Could not fetch emails: {e}"
@@ -637,82 +642,63 @@ def handle_command(text):
 
     if cmd == "/help":
         return (
-            "🤖 *Bunty — Command Reference*\n\n"
-
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "💼 *LINKEDIN JOBS*\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "/findjobs\n"
-            "  Searches LinkedIn for Easy Apply jobs matching your profile (Junior DevOps, Cloud Engineer, etc.) in Dublin. Sends each job to Telegram with ✅ Apply / ❌ Skip buttons for your approval.\n\n"
-            "/applyjobs\n"
-            "  Applies to all jobs you approved via ✅. Opens LinkedIn headlessly, fills the Easy Apply form, uploads your resume, answers screening questions, and submits. Sends a result for each job.\n\n"
-            "/autoapply\n"
-            "  Finds new LinkedIn Easy Apply jobs AND applies to them immediately — no approval step needed. Best for running overnight.\n\n"
-            "/savedjobs\n"
-            "  Applies to all jobs you've bookmarked/saved on LinkedIn. Useful if you manually saved jobs while browsing.\n\n"
-            "/resetfailed\n"
-            "  Resets all failed application attempts back to 'approved' so /applyjobs retries them.\n\n"
-            "/login\n"
-            "  Opens a Chrome browser on your PC and auto-fills your LinkedIn credentials. Run this if LinkedIn session expires. Session is saved so you won't need to log in again for weeks.\n\n"
-
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "🔍 *INDEED JOBS*\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "/findindeed\n"
-            "  Searches Indeed Ireland for jobs matching your profile. Sends each job to Telegram with ✅ Apply / ❌ Skip buttons. Shows ⚡ Easy Apply or 🌐 External label on each card.\n\n"
-            "/applyindeed\n"
-            "  Applies to all Indeed jobs you approved via ✅.\n"
-            "  ⚡ 'Apply with Indeed' jobs → fills SmartApply form and submits automatically.\n"
-            "  🌐 'Apply on company site' jobs → sends you the direct company apply link in Telegram.\n\n"
-            "/approveall\\-indeed\n"
-            "  Bulk-approves all pending Indeed jobs at once — no need to tap ✅ on each card. Run /applyindeed after to apply.\n\n"
-            "/autoapply\\-indeed\n"
-            "  Finds new Indeed jobs AND applies immediately — no approval step. Same ⚡/🌐 split as /applyindeed.\n\n"
-            "/savedjobs\\-indeed\n"
-            "  Applies to all jobs you've saved/bookmarked on Indeed.\n\n"
-            "/login\\-indeed\n"
-            "  Opens a Chrome browser on your PC and auto-fills your Indeed credentials. Run once — session is saved permanently. Both LinkedIn and Indeed auto-login every time the bot starts.\n\n"
-
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "📊 *APPLICATION TRACKER*\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "/mystatus\n"
-            "  Shows your full job application pipeline — counts by stage (applied, phone screen, interview, offer, rejected) plus a list of active applications.\n\n"
-            "/update [id] [stage] [note]\n"
-            "  Updates the stage of an application. Find the job ID in /mystatus.\n"
-            "  Stages: `applied` `phone\\_screen` `interview` `offer` `rejected` `withdrawn`\n"
-            "  Example: `/update abc123 interview Had a great call with the hiring manager`\n\n"
-
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "🔗 *LINKEDIN ACTIVITY*\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "/feed\n"
-            "  Scans your LinkedIn feed for quality posts and sends them to Telegram for approval. Approve to have Claude post a comment or send a connection request on your behalf.\n\n"
-            "/post [topic]\n"
-            "  Generates a professional LinkedIn post on any topic using Claude AI and publishes it to your profile.\n"
-            "  Example: `/post my experience with Kubernetes in production`\n\n"
-
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "📅 *DAILY TOOLS*\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "/schedule\n"
-            "  Shows today's Google Calendar events with times, titles, and locations.\n\n"
-            "/emails\n"
-            "  Summarises your Gmail inbox from the last 2 hours — flags priority emails that need a reply.\n\n"
-            "/jobs\n"
-            "  Summarises LinkedIn job alert emails from your Gmail inbox.\n\n"
-            "/stocks\n"
-            "  Checks your stock watchlist for significant price drops or alerts.\n\n"
-            "/digest\n"
-            "  Fetches and summarises today's top tech news, posted to your Daily topic.\n\n"
-
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "💬 *CHAT*\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "Just type anything — Bunty knows your full profile, career goals, and CV. Ask for help with cover letters, interview prep, code questions, or anything else."
+            "/findjobs — find LinkedIn jobs\n"
+            "/applyjobs — apply approved jobs\n"
+            "/autoapply — find & apply now\n"
+            "/savedjobs — apply saved jobs\n"
+            "/login — LinkedIn login\n"
+            "/resetfailed — retry failed\n"
+            "/findindeed — find Indeed jobs\n"
+            "/applyindeed — apply Indeed jobs\n"
+            "/autoapply\\-indeed — Indeed auto apply\n"
+            "/savedjobs\\-indeed — Indeed saved jobs\n"
+            "/approveall\\-indeed — approve all Indeed\n"
+            "/login\\-indeed — Indeed login\n"
+            "/mystatus — application stats\n"
+            "/update — update job stage\n"
+            "/feed — LinkedIn feed\n"
+            "/post — LinkedIn post\n"
+            "/schedule — today's calendar\n"
+            "/emails — Gmail summary\n"
+            "/jobs — job alert emails\n"
+            "/stocks — stock alerts\n"
+            "/digest — tech news"
         )
 
     return None
+
+
+def _load_last_email_time():
+    try:
+        if LAST_EMAIL_FILE.exists():
+            dt = datetime.fromisoformat(LAST_EMAIL_FILE.read_text().strip())
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+    except Exception:
+        pass
+    return datetime.now(timezone.utc) - timedelta(hours=24)
+
+
+def _save_last_email_time():
+    LAST_EMAIL_FILE.write_text(datetime.now(timezone.utc).isoformat())
+
+
+def startup_emails():
+    """On startup, fetch and send any new emails since last check."""
+    try:
+        from email_bot import fetch_emails_since_dt, summarize_with_claude
+        from telegram_topics import send_chat
+        since_dt = _load_last_email_time()
+        emails = fetch_emails_since_dt(since_dt)
+        _save_last_email_time()
+        if emails:
+            summary = summarize_with_claude(emails)
+            send_chat(f"📬 *New emails since last check:*\n\n{summary}")
+        else:
+            send_chat("📭 No new emails since last check.")
+    except Exception as e:
+        print(f"Startup emails error: {e}")
 
 
 def start_startup_login():
@@ -751,6 +737,9 @@ def run():
 
     # Start keepalive daemon — pings LinkedIn & Indeed every 30 min
     start_linkedin_keepalive()
+
+    # Show new emails since last check
+    startup_emails()
 
     offset = None
     while True:
