@@ -4,8 +4,16 @@ Shared LinkedIn browser utilities — persistent Chrome profile.
 Uses launch_persistent_context so LinkedIn always sees the same browser identity.
 Session cookies survive reboots. No cookie injection = no fingerprint detection.
 """
+import sys, io
 from pathlib import Path
 from dotenv import dotenv_values
+
+# Ensure stdout can handle emoji on Windows (cp1252 can't).
+# Only re-wrap if not already UTF-8 — double-wrapping closes the underlying buffer.
+if sys.stdout is not None and hasattr(sys.stdout, 'buffer') and getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if sys.stderr is not None and hasattr(sys.stderr, 'buffer') and getattr(sys.stderr, 'encoding', '').lower() != 'utf-8':
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 _config   = dotenv_values(Path.home() / ".env")
 _EMAIL    = _config.get("LINKEDIN_EMAIL", "")
@@ -42,9 +50,13 @@ _PWD_SELECTORS = [
 
 
 async def get_context(playwright, headless: bool = True):
-    """Launch (or resume) the persistent LinkedIn Chrome profile."""
+    """Launch (or resume) the persistent LinkedIn Chrome profile.
+    Uses real installed Google Chrome (channel='chrome') so LinkedIn
+    doesn't fingerprint-block Playwright's bundled Chromium.
+    """
     return await playwright.chromium.launch_persistent_context(
         PROFILE_DIR,
+        channel="chrome",
         headless=headless,
         args=_ARGS,
         viewport={"width": 1366, "height": 768},
