@@ -671,15 +671,29 @@ def handle_command(text):
     return None
 
 
-def start_linkedin_keepalive():
-    """Start linkedin_keepalive.py as a background process to keep the LinkedIn session alive."""
+def start_startup_login():
+    """On bot start: check + auto-restore LinkedIn and Indeed sessions."""
     try:
+        python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
         subprocess.Popen(
-            [PYTHON, str(BASE / "linkedin_keepalive.py")],
+            [python_exe, str(BASE / "startup_login.py")],
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+        print(f"[{datetime.now().strftime('%H:%M')}] Startup login check launched.")
+    except Exception as e:
+        print(f"Startup login error: {e}")
+
+
+def start_linkedin_keepalive():
+    """Start keepalive daemon — pings LinkedIn & Indeed every 30 min to prevent session expiry."""
+    try:
+        python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+        subprocess.Popen(
+            [python_exe, str(BASE / "linkedin_keepalive.py")],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
-        print(f"[{datetime.now().strftime('%H:%M')}] LinkedIn keepalive started.")
+        print(f"[{datetime.now().strftime('%H:%M')}] Keepalive daemon started.")
     except Exception as e:
         print(f"Keepalive start error: {e}")
 
@@ -688,7 +702,10 @@ def run():
     print(f"[{datetime.now().strftime('%H:%M')}] Bot server started. Listening for messages...")
     send_message("🤖 Bunty is online! Type anything to chat, or use /help to see commands.")
 
-    # Start LinkedIn keep-alive daemon (pings feed every 30 min to prevent session expiry)
+    # Auto-login to LinkedIn + Indeed on every startup
+    start_startup_login()
+
+    # Start keepalive daemon — pings LinkedIn & Indeed every 30 min
     start_linkedin_keepalive()
 
     offset = None
