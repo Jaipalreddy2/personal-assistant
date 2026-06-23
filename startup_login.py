@@ -10,9 +10,9 @@ import sys
 import io
 from playwright.async_api import async_playwright
 
-if sys.stdout is not None and hasattr(sys.stdout, "buffer"):
+if sys.stdout is not None and hasattr(sys.stdout, 'buffer') and getattr(sys.stdout, 'encoding', '').lower() != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-if sys.stderr is not None and hasattr(sys.stderr, "buffer"):
+if sys.stderr is not None and hasattr(sys.stderr, 'buffer') and getattr(sys.stderr, 'encoding', '').lower() != 'utf-8':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 

@@ -712,7 +712,8 @@ def start_startup_login():
             from startup_login import main as login_main
             asyncio.run(login_main())
         except Exception as e:
-            print(f"Startup login error: {e}")
+            import traceback
+            print(f"Startup login error: {e}\n{traceback.format_exc()}")
     threading.Thread(target=_run, daemon=True).start()
     print(f"[{datetime.now().strftime('%H:%M')}] Startup login check launched.")
 
@@ -724,7 +725,8 @@ def start_linkedin_keepalive():
             from linkedin_keepalive import keepalive_loop
             asyncio.run(keepalive_loop())
         except Exception as e:
-            print(f"Keepalive error: {e}")
+            import traceback
+            print(f"Keepalive error: {e}\n{traceback.format_exc()}")
     threading.Thread(target=_run, daemon=True).start()
     print(f"[{datetime.now().strftime('%H:%M')}] Keepalive daemon started.")
 
