@@ -706,7 +706,7 @@ def startup_emails():
 
 
 def start_startup_login():
-    """On bot start: check + auto-restore sessions in a background thread (no window)."""
+    """On bot start: check + auto-restore sessions, then close the terminal window."""
     def _run():
         try:
             from startup_login import main as login_main
@@ -714,6 +714,11 @@ def start_startup_login():
         except Exception as e:
             import traceback
             print(f"Startup login error: {e}\n{traceback.format_exc()}")
+        finally:
+            # Detach from console — window closes, bot keeps running in background
+            if sys.platform == "win32":
+                import ctypes
+                ctypes.windll.kernel32.FreeConsole()
     threading.Thread(target=_run, daemon=True).start()
     print(f"[{datetime.now().strftime('%H:%M')}] Startup login check launched.")
 
