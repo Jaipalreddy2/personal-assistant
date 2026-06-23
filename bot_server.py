@@ -702,12 +702,14 @@ def startup_emails():
 
 
 def start_startup_login():
-    """On bot start: check + auto-restore LinkedIn and Indeed sessions."""
+    """On bot start: check + auto-restore LinkedIn and Indeed sessions (hidden, background)."""
     try:
         python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+        log_file = open(BASE / "bot.log", "a")
         subprocess.Popen(
             [python_exe, str(BASE / "startup_login.py")],
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
+            stdout=log_file, stderr=log_file,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
         print(f"[{datetime.now().strftime('%H:%M')}] Startup login check launched.")
     except Exception as e:
