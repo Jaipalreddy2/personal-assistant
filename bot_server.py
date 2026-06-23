@@ -699,7 +699,7 @@ def _startup_task_done():
             import ctypes
             hwnd = ctypes.windll.kernel32.GetConsoleWindow()
             if hwnd:
-                ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+                ctypes.windll.user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE → taskbar
 
 
 def startup_emails():
