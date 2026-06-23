@@ -68,4 +68,5 @@ async def main():
         send_telegram("⚠️ Both sessions failed — run /login and /login-indeed")
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

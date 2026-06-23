@@ -11,6 +11,8 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import asyncio
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from dotenv import dotenv_values
@@ -685,35 +687,34 @@ def _save_last_email_time():
 
 
 def startup_emails():
-    """On startup, fetch and send any new emails since last check."""
-    try:
-        from email_bot import fetch_emails_since_dt, summarize_with_claude
-        from telegram_topics import send_chat
-        since_dt = _load_last_email_time()
-        emails = fetch_emails_since_dt(since_dt)
-        _save_last_email_time()
-        if emails:
-            summary = summarize_with_claude(emails)
-            send_chat(f"📬 *New emails since last check:*\n\n{summary}")
-        else:
-            send_chat("📭 No new emails since last check.")
-    except Exception as e:
-        print(f"Startup emails error: {e}")
+    """On startup, fetch and send new emails in a background thread (no window)."""
+    def _run():
+        try:
+            from email_bot import fetch_emails_since_dt, summarize_with_claude
+            from telegram_topics import send_chat
+            since_dt = _load_last_email_time()
+            emails = fetch_emails_since_dt(since_dt)
+            _save_last_email_time()
+            if emails:
+                summary = summarize_with_claude(emails)
+                send_chat(f"📬 *New emails since last check:*\n\n{summary}")
+            else:
+                send_chat("📭 No new emails since last check.")
+        except Exception as e:
+            print(f"Startup emails error: {e}")
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def start_startup_login():
-    """On bot start: check + auto-restore LinkedIn and Indeed sessions (hidden, background)."""
-    try:
-        python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
-        log_file = open(BASE / "bot.log", "a")
-        subprocess.Popen(
-            [python_exe, str(BASE / "startup_login.py")],
-            stdout=log_file, stderr=log_file,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        print(f"[{datetime.now().strftime('%H:%M')}] Startup login check launched.")
-    except Exception as e:
-        print(f"Startup login error: {e}")
+    """On bot start: check + auto-restore sessions in a background thread (no window)."""
+    def _run():
+        try:
+            from startup_login import main as login_main
+            asyncio.run(login_main())
+        except Exception as e:
+            print(f"Startup login error: {e}")
+    threading.Thread(target=_run, daemon=True).start()
+    print(f"[{datetime.now().strftime('%H:%M')}] Startup login check launched.")
 
 
 def start_linkedin_keepalive():
