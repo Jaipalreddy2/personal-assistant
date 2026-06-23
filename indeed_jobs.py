@@ -722,6 +722,153 @@ async def login_indeed_visible():
             await context.close()
 
 
+def approve_all_pending():
+    """Bulk-approve all pending Indeed jobs — no Telegram tap needed."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("UPDATE jobs SET status='approved' WHERE source='indeed' AND status='pending'")
+    count = conn.execute("SELECT changes()").fetchone()[0]
+    conn.commit()
+    conn.close()
+    return count
+
+
+async def auto_apply_indeed():
+    """Find Indeed jobs and apply immediately — no approval step."""
+    init_db()
+
+    # Phase 1: scrape all keywords
+    all_new = []
+    seen_this_run = set()
+
+    async with async_playwright() as p:
+        context = await get_indeed_context(p, headless=True)
+        page = await context.new_page()
+
+        for kw in JOB_KEYWORDS:
+            print(f"Searching: {kw}")
+            jobs = await scrape_indeed_keyword(page, kw)
+            for job in jobs:
+                if job["id"] in seen_this_run or already_seen(job["id"]):
+                    continue
+                if not _is_relevant(job["title"]):
+                    continue
+                seen_this_run.add(job["id"])
+                notes = "easy_apply" if job.get("easy_apply") else "external"
+                job["notes"] = notes
+                save_job(job)
+                update_job_status(job["id"], "approved")
+                all_new.append(job)
+            await asyncio.sleep(random.randint(2, 4))
+
+        await context.close()
+
+    if not all_new:
+        send_telegram("🔍 *Indeed Auto Apply*: No new jobs found.")
+        return
+
+    send_telegram(f"💼 Found *{len(all_new)} new Indeed jobs* — applying now, no approval needed...")
+
+    # Phase 2: apply
+    async with async_playwright() as p:
+        context, page = await ensure_indeed_session(p, send_telegram)
+        if context is None:
+            return
+
+        applied = 0
+        for job in all_new:
+            try:
+                success = await apply_to_indeed_job(page, job)
+                status = "applied" if success else "failed"
+            except Exception as e:
+                print(f"  Error: {e}")
+                status = "failed"
+                success = False
+
+            update_job_status(job["id"], status)
+            if success and job.get("notes") == "easy_apply":
+                applied += 1
+                send_telegram(f"✅ Applied: *{job['title']}* at {job['company']}")
+            elif not success:
+                send_telegram(f"⚠️ Could not apply: *{job['title']}* at {job['company']}")
+
+            await asyncio.sleep(random.randint(8, 15))
+
+        await context.close()
+
+    send_telegram(f"🎉 Done! *{applied}/{len(all_new)}* Indeed applications submitted.")
+
+
+async def apply_indeed_saved():
+    """Apply to jobs saved/bookmarked on Indeed."""
+    init_db()
+    send_telegram("🔖 Checking your Indeed Saved Jobs...")
+
+    async with async_playwright() as p:
+        context, page = await ensure_indeed_session(p, send_telegram)
+        if context is None:
+            return
+
+        try:
+            await page.goto("https://ie.indeed.com/profile/savedJobs", wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(3000)
+
+            saved = await page.evaluate("""() => {
+                const results = [];
+                for (const a of document.querySelectorAll('a[data-jk], a[href*="viewjob"]')) {
+                    const jk = a.getAttribute('data-jk') || (a.href.split('jk=')[1] || '').split('&')[0];
+                    if (!jk) continue;
+                    const titleEl = a.querySelector('span[title], span') || a;
+                    const title = (titleEl.getAttribute('title') || titleEl.innerText || '').trim();
+                    if (!title || title.length < 3) continue;
+                    const li = a.closest('li, article, div[class*="job"]');
+                    const compEl = li ? li.querySelector('[data-testid="company-name"], [class*="company"]') : null;
+                    results.push({
+                        id: 'indeed_' + jk,
+                        title: title,
+                        company: compEl ? compEl.innerText.trim() : 'Unknown',
+                        location: 'Dublin, Ireland',
+                        url: 'https://ie.indeed.com/viewjob?jk=' + jk,
+                    });
+                }
+                return results;
+            }""")
+
+            if not saved:
+                send_telegram("🔖 No saved jobs found on Indeed. Save jobs on ie.indeed.com first.")
+                await context.close()
+                return
+
+            send_telegram(f"🔖 Found *{len(saved)} saved Indeed jobs* — applying now...")
+
+            applied = 0
+            for job in saved:
+                job["source"] = "indeed"
+                job["notes"] = "external"  # will be re-detected in apply_to_indeed_job
+                if not already_seen(job["id"]):
+                    save_job(job)
+                    update_job_status(job["id"], "approved")
+
+                try:
+                    success = await apply_to_indeed_job(page, job)
+                    status = "applied" if success else "failed"
+                except Exception as e:
+                    print(f"  Error: {e}")
+                    status = "failed"
+                    success = False
+
+                update_job_status(job["id"], status)
+                if success:
+                    applied += 1
+                await asyncio.sleep(random.randint(8, 15))
+
+            await context.close()
+            send_telegram(f"🎉 Done! Processed *{applied}/{len(saved)}* Indeed saved jobs.")
+
+        except Exception as e:
+            await context.close()
+            send_telegram(f"⚠️ Error reading saved jobs: {e}")
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "find"
     if cmd == "find":
@@ -730,3 +877,10 @@ if __name__ == "__main__":
         asyncio.run(apply_approved())
     elif cmd == "login":
         asyncio.run(login_indeed_visible())
+    elif cmd == "autoapply":
+        asyncio.run(auto_apply_indeed())
+    elif cmd == "savedjobs":
+        asyncio.run(apply_indeed_saved())
+    elif cmd == "approveall":
+        n = approve_all_pending()
+        send_telegram(f"✅ Approved *{n} Indeed jobs*. Run /applyindeed to apply.")

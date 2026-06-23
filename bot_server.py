@@ -514,6 +514,45 @@ def handle_command(text):
         except Exception as e:
             return f"⚠️ Error: {e}"
 
+    if cmd == "/autoapply-indeed":
+        try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
+            subprocess.Popen(
+                [python_exe, "-u", str(BASE / "indeed_jobs.py"), "autoapply"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            return "🤖 Indeed Auto Apply started — finding jobs and applying immediately, no approval needed!"
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
+    if cmd == "/savedjobs-indeed":
+        try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
+            subprocess.Popen(
+                [python_exe, "-u", str(BASE / "indeed_jobs.py"), "savedjobs"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            return "🔖 Applying to your Indeed Saved Jobs now... results coming shortly!"
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
+    if cmd == "/approveall-indeed":
+        try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
+            subprocess.Popen(
+                [python_exe, "-u", str(BASE / "indeed_jobs.py"), "approveall"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            return "✅ Approving all pending Indeed jobs... then run /applyindeed to apply!"
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
     if cmd == "/feed":
         try:
             subprocess.Popen(
@@ -607,10 +646,13 @@ def handle_command(text):
                 "/login — refresh LinkedIn session (opens browser on your PC)\n\n"
                 "*Indeed Jobs:*\n"
                 "/findindeed — search Indeed jobs in Dublin, send for approval\n"
-                "/applyindeed — apply to approved Indeed jobs\n"
-                "  ⚡ 'Apply with Indeed' jobs → auto-submitted\n"
-                "  🌐 'Apply on company site' jobs → link sent to you\n"
-                "/login\\-indeed — log in to Indeed once (required before /applyindeed)\n\n"
+                "/applyindeed — apply to all approved Indeed jobs\n"
+                "/approveall\\-indeed — approve all pending Indeed jobs at once\n"
+                "/autoapply\\-indeed — find + apply immediately (no approval step)\n"
+                "/savedjobs\\-indeed — apply to your Indeed Saved Jobs\n"
+                "  ⚡ 'Apply with Indeed' → auto-submitted\n"
+                "  🌐 'Apply on company site' → link sent to you\n"
+                "/login\\-indeed — log in to Indeed once (required before applying)\n\n"
                 "*Application Tracker:*\n"
                 "/mystatus — view full application pipeline\n"
                 "/update [id] [stage] [note] — update application stage\n"
