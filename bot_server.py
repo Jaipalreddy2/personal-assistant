@@ -752,6 +752,13 @@ def start_linkedin_keepalive():
 
 
 def run():
+    # Hide console window immediately — bot runs silently in background
+    if sys.platform == "win32":
+        import ctypes
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 0)
+
     print(f"[{datetime.now().strftime('%H:%M')}] Bot server started. Listening for messages...")
     send_message("🤖 Bunty is online! Type anything to chat, or use /help to see commands.")
 
