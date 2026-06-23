@@ -94,6 +94,7 @@ def is_fresher_role(title):
 
 LINKEDIN_EMAIL    = config.get("LINKEDIN_EMAIL")
 LINKEDIN_PASSWORD = config.get("LINKEDIN_PASSWORD")
+PHONE_NUMBER      = config.get("PHONE", "+353870042809")
 
 LOCATION     = "Dublin, Ireland"
 DB_PATH      = Path(__file__).parent / "applied_jobs.db"
@@ -455,55 +456,102 @@ async def _upload_resume_if_needed(page):
         pass
 
 
-async def apply_to_job(page, job):
-    """Apply to a single Easy Apply job."""
+async def _fill_required_fields(page):
+    """Auto-fill any required fields in the Easy Apply modal that are empty."""
     try:
-        import random
+        await page.evaluate(f"""async () => {{
+            const phone = "{PHONE_NUMBER}";
+            // Fill empty phone inputs
+            for (const inp of document.querySelectorAll('input[type="tel"], input[id*="phone"], input[name*="phone"]')) {{
+                if (!inp.value) inp.value = phone;
+            }}
+            // Answer "Yes" to work authorisation / sponsorship radio groups
+            for (const radio of document.querySelectorAll('input[type="radio"]')) {{
+                const lbl = (radio.getAttribute('aria-label') || '').toLowerCase();
+                const parentText = (radio.closest('fieldset')?.innerText || '').toLowerCase();
+                if ((lbl.includes('yes') || lbl.includes('authorized') || lbl.includes('eligible'))
+                    && !radio.checked) {{
+                    radio.click();
+                }}
+                // Select "No" for sponsorship needed
+                if ((parentText.includes('sponsor') && (lbl.includes('no') || lbl === 'no'))
+                    && !radio.checked) {{
+                    radio.click();
+                }}
+            }}
+            // Fill required empty text inputs with sensible defaults
+            for (const inp of document.querySelectorAll('input[required], input[aria-required="true"]')) {{
+                if (!inp.value && inp.type === 'text') {{
+                    const lbl = (inp.getAttribute('aria-label') || inp.getAttribute('placeholder') || '').toLowerCase();
+                    if (lbl.includes('year') || lbl.includes('experience')) inp.value = '1';
+                    else if (lbl.includes('salary') || lbl.includes('rate')) inp.value = '40000';
+                    else if (lbl.includes('city') || lbl.includes('location')) inp.value = 'Dublin';
+                    else if (lbl.includes('linkedin') || lbl.includes('profile')) inp.value = 'https://www.linkedin.com/in/jaipal-kasi-reddy';
+                    else if (lbl.includes('github') || lbl.includes('portfolio') || lbl.includes('website')) inp.value = 'https://github.com/Jaipalreddy2';
+                }}
+            }}
+            // Select first option in empty required dropdowns
+            for (const sel of document.querySelectorAll('select[required], select[aria-required="true"]')) {{
+                if (!sel.value && sel.options.length > 1) sel.selectedIndex = 1;
+            }}
+        }};""")
+    except Exception as e:
+        print(f"  Field fill error: {e}")
 
-        # Use LinkedIn's jobs search with currentJobId — loads the job in the
+
+async def apply_to_job(page, job):
+    """Apply to a single Easy Apply job. Returns True on success."""
+    try:
         job_id = job["id"]
-        # Try search URL first, fall back to direct view URL
         urls_to_try = [
             f"https://www.linkedin.com/jobs/search/?currentJobId={job_id}",
             f"https://www.linkedin.com/jobs/view/{job_id}/",
         ]
 
         nav_ok = False
-        for url_attempt, nav_url in enumerate(urls_to_try):
+        for nav_url in urls_to_try:
             for attempt in range(2):
                 try:
                     await page.goto(nav_url, wait_until="domcontentloaded", timeout=30000)
                     nav_ok = True
                     break
                 except Exception as nav_err:
-                    wait = 10 + random.randint(5, 10)
-                    print(f"  Nav error (url {url_attempt+1} attempt {attempt+1}): {nav_err} — waiting {wait}s...")
-                    await page.wait_for_timeout(wait * 1000)
+                    print(f"  Nav error: {nav_err}")
+                    await page.wait_for_timeout(8000)
             if nav_ok:
                 break
 
         if not nav_ok:
-            print(f"  Nav failed for all URLs for {job['title']}")
+            print(f"  Nav failed: {job['title']}")
             return False
 
-        # Random human-like delay
-        await page.wait_for_timeout(2000 + random.randint(500, 2000))
-
-        # Dismiss cookie consent banner before looking for Easy Apply
+        await page.wait_for_timeout(2000 + random.randint(500, 1500))
         await dismiss_cookie_banner(page)
         await page.wait_for_timeout(500)
 
-        # Find Easy Apply button via aria-label (works regardless of hashed CSS classes)
-        apply_btn = (
-            await page.query_selector("button[aria-label='Easy Apply to this job']") or
-            await page.query_selector("button[aria-label*='Easy Apply']") or
-            await page.query_selector("button.jobs-apply-button") or
-            await page.query_selector("button[data-job-id]")
-        )
+        # Dismiss any "unfinished application" dialog first
+        try:
+            discard = await page.query_selector("button[aria-label='Discard'], button[data-control-name='discard_application']")
+            if discard:
+                await discard.click()
+                await page.wait_for_timeout(1000)
+        except Exception:
+            pass
 
-        # Also try finding by button text
+        # ── Find Easy Apply button ──────────────────────────────────────────
+        apply_btn = None
+        for sel in [
+            "button[aria-label='Easy Apply to this job']",
+            "button[aria-label*='Easy Apply']",
+            "button.jobs-apply-button",
+        ]:
+            apply_btn = await page.query_selector(sel)
+            if apply_btn:
+                break
+
         if not apply_btn:
-            apply_btn = await page.evaluate_handle("""() => {
+            # Try by button text
+            handle = await page.evaluate_handle("""() => {
                 for (const btn of document.querySelectorAll('button')) {
                     const t = (btn.innerText || '').trim();
                     if (t === 'Easy Apply' || t.startsWith('Easy Apply')) return btn;
@@ -511,122 +559,100 @@ async def apply_to_job(page, job):
                 return null;
             }""")
             try:
-                if await apply_btn.evaluate("el => el === null"):
-                    apply_btn = None
+                if not await handle.evaluate("el => el === null"):
+                    apply_btn = handle
             except Exception:
-                apply_btn = None
+                pass
 
         if not apply_btn:
-            # No Easy Apply — look for a plain "Apply" link/button that goes external
+            # No Easy Apply — try external apply link
             ext_url = await page.evaluate("""() => {
-                // Check buttons
-                for (const btn of document.querySelectorAll('button')) {
-                    const t = (btn.innerText || btn.getAttribute('aria-label') || '').trim().toLowerCase();
-                    if (t === 'apply' || t === 'apply now' || t === 'apply on company website') {
-                        btn.click();
-                        return 'clicked';
-                    }
-                }
-                // Check anchor tags
-                for (const a of document.querySelectorAll('a')) {
+                for (const a of document.querySelectorAll('a[href]')) {
                     const t = (a.innerText || a.getAttribute('aria-label') || '').trim().toLowerCase();
                     const href = a.href || '';
-                    if ((t === 'apply' || t === 'apply now' || t === 'apply on company website')
-                        && href && !href.includes('linkedin.com')) {
+                    if ((t.includes('apply') || t === 'apply now') && !href.includes('linkedin.com'))
                         return href;
-                    }
                 }
                 return null;
             }""")
-
-            if ext_url == 'clicked':
-                # Button clicked — wait for new tab or navigation
-                await page.wait_for_timeout(3000)
-                ext_url = page.url if 'linkedin.com' not in page.url else None
-
-            if ext_url and 'linkedin.com' not in ext_url:
-                print(f"  External apply link found: {ext_url[:80]}")
+            if ext_url:
+                print(f"  External link: {ext_url[:80]}")
                 try:
                     from external_apply import apply_external
                     return await apply_external(page, ext_url, job)
                 except Exception as e:
                     print(f"  External apply error: {e}")
-                    return False
-
-            print(f"  No apply button found for {job['title']} — skipping")
+            print(f"  No apply button found for {job['title']}")
             return False
 
-        print(f"  Found Easy Apply button for {job['title']}, clicking...")
+        print(f"  Easy Apply found: {job['title']} @ {job['company']}")
+        await apply_btn.scroll_into_view_if_needed()
         await apply_btn.click()
         await page.wait_for_timeout(2000)
 
-        # Redirected to external ATS — run the matching handler
+        # Redirected to external ATS
         if 'linkedin.com' not in page.url:
-            ext_url = page.url
-            print(f"  Redirected to external site: {ext_url} — running external handler...")
             try:
                 from external_apply import apply_external
-                return await apply_external(page, ext_url, job)
+                return await apply_external(page, page.url, job)
             except Exception as e:
                 print(f"  External apply error: {e}")
                 return False
 
-        # Upload PDF resume if the modal has a file input field
+        # ── Walk through Easy Apply steps ──────────────────────────────────
         await _upload_resume_if_needed(page)
 
-        # Click through all Easy Apply steps using LinkedIn's pre-filled data
         review_count = 0
-        for step in range(30):
+        stuck_count  = 0
+        for step in range(35):
             await dismiss_cookie_banner(page)
-            await page.wait_for_timeout(1500)
+            await page.wait_for_timeout(1200)
             await _upload_resume_if_needed(page)
+            await _fill_required_fields(page)
 
-            # After hitting Review twice without Submit, scroll down and look harder for Submit
             if review_count >= 2:
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await page.wait_for_timeout(500)
+                await page.wait_for_timeout(400)
 
             clicked = await page.evaluate("""() => {
-                for (const btn of document.querySelectorAll('button')) {
-                    const t = btn.innerText.trim();
-                    const a = btn.getAttribute('aria-label') || '';
-                    if (t === 'Submit application' || a.includes('Submit application')) {
-                        btn.click(); return 'submit';
-                    }
-                }
-                for (const btn of document.querySelectorAll('button')) {
-                    const t = btn.innerText.trim();
-                    const a = btn.getAttribute('aria-label') || '';
-                    if (t === 'Review' || a.includes('Review your application')) {
-                        btn.click(); return 'review';
-                    }
-                    if (t === 'Next' || a.includes('Continue to next step')) {
-                        btn.click(); return 'next';
-                    }
-                    if (t === 'Done') {
-                        btn.click(); return 'done';
-                    }
-                }
+                const buttons = Array.from(document.querySelectorAll('button'));
+                const find = (...labels) => buttons.find(b => {
+                    const t = (b.innerText || '').trim();
+                    const a = b.getAttribute('aria-label') || '';
+                    return labels.some(l => t === l || a.includes(l));
+                });
+                const submit = find('Submit application', 'Submit Application');
+                if (submit) { submit.click(); return 'submit'; }
+                const done = find('Done');
+                if (done) { done.click(); return 'done'; }
+                const review = find('Review', 'Review your application');
+                if (review) { review.click(); return 'review'; }
+                const next = find('Next', 'Continue to next step', 'Continue');
+                if (next) { next.click(); return 'next'; }
+                // Dismiss "Follow company" or success modals
+                const dismiss = find('Dismiss', 'Not now', 'Skip');
+                if (dismiss) { dismiss.click(); return 'dismiss'; }
                 return null;
             }""")
 
-            print(f"  Step {step}: clicked={clicked}")
+            print(f"  Step {step}: {clicked}")
+
             if clicked == 'review':
                 review_count += 1
-
-            if clicked == 'submit':
+            elif clicked == 'submit':
                 await page.wait_for_timeout(2000)
-                print(f"  ✅ Applied to {job['title']} at {job['company']}")
+                print(f"  ✅ Applied: {job['title']} @ {job['company']}")
                 return True
-
-            if clicked == 'done':
-                print(f"  ✅ Applied to {job['title']} at {job['company']}")
+            elif clicked == 'done':
+                print(f"  ✅ Applied: {job['title']} @ {job['company']}")
                 return True
-
-            if clicked is None:
-                all_btns = await page.evaluate("() => Array.from(document.querySelectorAll('button')).map(b => b.getAttribute('aria-label') || b.innerText.trim()).filter(t => t).slice(0,10)")
-                print(f"  Step {step}: no nav button found — {all_btns}")
-                break
+            elif clicked is None:
+                stuck_count += 1
+                if stuck_count >= 2:
+                    btns = await page.evaluate("() => Array.from(document.querySelectorAll('button')).map(b => (b.innerText||b.getAttribute('aria-label')||'').trim()).filter(t=>t).slice(0,8)")
+                    print(f"  Stuck at step {step}. Buttons: {btns}")
+                    break
+                await page.wait_for_timeout(2000)
 
         return False
 
