@@ -116,9 +116,10 @@ def init_db():
 def save_job(job):
     conn = sqlite3.connect(DB_PATH)
     try:
+        notes = "easy_apply" if job.get("easy_apply") else "external"
         conn.execute(
-            "INSERT OR IGNORE INTO jobs (id, title, company, location, url, source) VALUES (?,?,?,?,?,?)",
-            (job["id"], job["title"], job["company"], job["location"], job["url"], job.get("source", "indeed")),
+            "INSERT OR IGNORE INTO jobs (id, title, company, location, url, source, notes) VALUES (?,?,?,?,?,?,?)",
+            (job["id"], job["title"], job["company"], job["location"], job["url"], job.get("source", "indeed"), notes),
         )
         conn.commit()
     except Exception:
@@ -152,10 +153,10 @@ def update_job_status(job_id, status):
 def get_approved_indeed_jobs():
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
-        "SELECT id, title, company, location, url FROM jobs WHERE status='approved' AND source='indeed'"
+        "SELECT id, title, company, location, url, notes FROM jobs WHERE status='approved' AND source='indeed'"
     ).fetchall()
     conn.close()
-    return [{"id": r[0], "title": r[1], "company": r[2], "location": r[3], "url": r[4]} for r in rows]
+    return [{"id": r[0], "title": r[1], "company": r[2], "location": r[3], "url": r[4], "notes": r[5] or ""} for r in rows]
 
 
 # ── Telegram ───────────────────────────────────────────────────────────────────
@@ -184,8 +185,9 @@ def send_job_for_approval(job):
             {"text": "❌ Skip",  "callback_data": f"skip_{job['id']}"},
         ]]
     }
+    apply_tag = "⚡ Easy Apply" if job.get("easy_apply") else "🌐 External Apply"
     text = (
-        f"🔍 *Indeed Job Found*\n\n"
+        f"🔍 *Indeed Job Found* — {apply_tag}\n\n"
         f"*{job['title']}*\n"
         f"🏢 {job['company']}\n"
         f"📍 {job['location']}\n\n"
@@ -234,14 +236,12 @@ async def scrape_indeed_keyword(page, keyword, days=14):
 
     jobs = await page.evaluate("""() => {
         const results = [];
-        // data-jk is on the <a> job title link; parent <li> has company/location
         const jobLinks = document.querySelectorAll('a[data-jk]');
         for (const link of jobLinks) {
             try {
                 const jk = link.getAttribute('data-jk');
                 if (!jk) continue;
 
-                // Title is in span[title] inside the link
                 const titleEl = link.querySelector('span[title]') || link.querySelector('span');
                 const title = titleEl ? (titleEl.getAttribute('title') || titleEl.innerText || '').trim() : '';
                 if (!title) continue;
@@ -255,6 +255,10 @@ async def scrape_indeed_keyword(page, keyword, days=14):
                 const locEl = li.querySelector('[data-testid="text-location"]');
                 const location = locEl ? locEl.innerText.trim() : 'Dublin, Ireland';
 
+                // Detect "Easily apply" badge in card text
+                const cardText = (li.innerText || '').toLowerCase();
+                const easyApply = cardText.includes('easily apply');
+
                 results.push({
                     id: 'indeed_' + jk,
                     title: title,
@@ -262,6 +266,7 @@ async def scrape_indeed_keyword(page, keyword, days=14):
                     location: location.split('\\n')[0].trim(),
                     url: 'https://ie.indeed.com/viewjob?jk=' + jk,
                     source: 'indeed',
+                    easy_apply: easyApply,
                 });
             } catch(e) {}
         }
@@ -449,78 +454,89 @@ async def _upload_resume(page):
 
 
 async def apply_to_indeed_job(page, job):
-    """Navigate to job and attempt Indeed Easy Apply. Returns True on success."""
+    """Navigate to job page and apply.
+
+    - easy_apply jobs: fills Indeed's own form and submits
+    - external jobs: sends the direct company apply URL to Telegram
+    Returns True when action was taken (applied or link sent).
+    """
+    is_easy = job.get("notes", "") == "easy_apply"
+
     try:
         await page.goto(job["url"], wait_until="domcontentloaded", timeout=30000)
         await page.wait_for_timeout(2000 + random.randint(500, 1500))
 
-        # Find the apply button
-        apply_btn = None
-        for sel in [
-            "button[id*='apply-button']",
-            "button[data-tn-element='jobsearch-IndeedApplyButton']",
-            "button.ia-IndeedApplyButton",
-            "span.indeed-apply-widget button",
-            "a[href*='applystart']",
-            "#applyButton",
-        ]:
+        # Inspect the apply button to determine type
+        btn_info = await page.evaluate("""() => {
+            const container = document.querySelector('#applyButtonLinkContainer, [data-testid="applyButton"]');
+            const btn = container ? container.querySelector('button, a') : document.querySelector('button[id*="apply"], a[id*="apply"]');
+            if (!btn) return null;
+            return {
+                text: (btn.innerText || btn.textContent || '').trim(),
+                href: btn.href || '',
+                tag: btn.tagName
+            };
+        }""")
+
+        if not btn_info:
+            # No apply button at all — send link to Telegram
+            send_telegram(
+                f"🌐 *{job['title']}* at {job['company']}\n"
+                f"Apply manually: {job['url']}"
+            )
+            return True  # treated as "handled"
+
+        btn_text = btn_info.get("text", "").lower()
+        is_external_btn = "company site" in btn_text or "company website" in btn_text
+
+        if is_external_btn or not is_easy:
+            # External apply — intercept the popup/redirect to get the real URL
             try:
-                el = await page.query_selector(sel)
-                if el and await el.is_visible():
-                    apply_btn = el
-                    break
+                popup_future = asyncio.ensure_future(
+                    page.wait_for_event("popup", timeout=5000)
+                )
+                await page.evaluate("""() => {
+                    const btn = document.querySelector('#applyButtonLinkContainer button, #applyButtonLinkContainer a, button[id*=apply]');
+                    if (btn) btn.click();
+                }""")
+                try:
+                    popup = await popup_future
+                    await popup.wait_for_load_state("domcontentloaded", timeout=8000)
+                    external_url = popup.url
+                    await popup.close()
+                except Exception:
+                    external_url = job["url"]
             except Exception:
-                continue
+                external_url = job["url"]
 
-        if not apply_btn:
-            # Fallback: search by button text
-            handle = await page.evaluate_handle("""() => {
-                for (const el of document.querySelectorAll('button, a')) {
-                    const t = (el.innerText || '').trim().toLowerCase();
-                    if (t === 'apply now' || t === 'easily apply' || t.startsWith('apply now') || t === 'apply') {
-                        return el;
-                    }
-                }
-                return null;
-            }""")
-            try:
-                if not await handle.evaluate("el => el === null"):
-                    apply_btn = handle
-            except Exception:
-                pass
+            send_telegram(
+                f"🌐 *{job['title']}* at {job['company']}\n"
+                f"[Apply on company site]({external_url})"
+            )
+            return True  # link sent — counts as handled
 
-        if not apply_btn:
-            send_telegram(f"⚠️ No apply button — apply manually:\n{job['url']}")
-            return False
-
-        try:
-            await apply_btn.scroll_into_view_if_needed()
-            await apply_btn.click()
-        except Exception:
-            await page.evaluate("el => el.click()", apply_btn)
-
+        # ── Indeed Easy Apply form ─────────────────────────────────────────
+        # Click the apply button
+        await page.evaluate("""() => {
+            const btn = document.querySelector('#applyButtonLinkContainer button, button.ia-IndeedApplyButton, [data-testid="applyButton"] button');
+            if (btn) btn.click();
+        }""")
         await page.wait_for_timeout(3000)
 
-        # If redirected away from Indeed, it's an external application
-        if "indeed.com" not in page.url:
-            send_telegram(f"🌐 External apply for *{job['title']}*:\n{page.url}")
-            return False
-
-        # Upload resume if prompted
+        # Upload resume
         await _upload_resume(page)
 
-        # Fill basic personal info fields
+        # Fill common fields
         try:
-            for sel in ["input[name*='name'][type='text']", "input[id*='applicant-name']"]:
+            for sel in ["input[name*='name'][type='text']", "input[autocomplete*='name']"]:
                 el = await page.query_selector(sel)
                 if el and not await el.input_value():
                     await el.fill("Jaipal Kasi Reddy")
                     break
         except Exception:
             pass
-
         try:
-            for sel in ["input[type='tel']", "input[name*='phone']", "input[id*='phone']"]:
+            for sel in ["input[type='tel']", "input[name*='phone']"]:
                 el = await page.query_selector(sel)
                 if el and not await el.input_value():
                     await el.fill(PHONE_NUMBER)
@@ -532,21 +548,18 @@ async def apply_to_indeed_job(page, job):
         for _ in range(8):
             await page.wait_for_timeout(1500)
 
-            # Success indicators
-            success = await page.query_selector(
-                "h1[class*='success'], [data-tn-component*='applicationSubmitted'], "
-                "[class*='confirmation'], h2[class*='thank']"
+            # Success check
+            if "apply/confirmation" in page.url or "thankyou" in page.url.lower():
+                return True
+            success_el = await page.query_selector(
+                "[data-tn-component*='applicationSubmitted'], [class*='confirmation'], h1[class*='success']"
             )
-            if success or "apply/confirmation" in page.url or "thankyou" in page.url.lower():
+            if success_el:
                 return True
 
             # Submit button
             submit_btn = None
-            for sel in [
-                "button[data-tn-element='submit-button']",
-                "button[aria-label*='ubmit']",
-                "button[type='submit']",
-            ]:
+            for sel in ["button[data-tn-element='submit-button']", "button[type='submit']"]:
                 try:
                     el = await page.query_selector(sel)
                     if el and await el.is_visible():
@@ -556,47 +569,26 @@ async def apply_to_indeed_job(page, job):
                             break
                 except Exception:
                     continue
-
             if submit_btn:
                 await submit_btn.click()
                 await page.wait_for_timeout(3000)
-                return True  # optimistic after submit click
+                return True
 
             # Continue / Next button
-            next_btn = None
-            for sel in [
-                "button[data-tn-element='continue-button']",
-                "button[aria-label*='ontinue']",
-                "button[aria-label*='ext step']",
-            ]:
-                try:
-                    el = await page.query_selector(sel)
-                    if el and await el.is_visible():
-                        next_btn = el
-                        break
-                except Exception:
+            next_btn = await page.evaluate_handle("""() => {
+                for (const btn of document.querySelectorAll('button')) {
+                    const t = (btn.innerText || '').trim().toLowerCase();
+                    if (['continue', 'next', 'save and continue', 'next step'].includes(t)) return btn;
+                }
+                return null;
+            }""")
+            try:
+                if not await next_btn.evaluate("el => el === null"):
+                    await next_btn.click()
                     continue
-
-            if not next_btn:
-                # Try by text
-                handle = await page.evaluate_handle("""() => {
-                    for (const btn of document.querySelectorAll('button')) {
-                        const t = (btn.innerText || '').trim().toLowerCase();
-                        if (['continue', 'next', 'save and continue', 'next step'].includes(t))
-                            return btn;
-                    }
-                    return null;
-                }""")
-                try:
-                    if not await handle.evaluate("el => el === null"):
-                        next_btn = handle
-                except Exception:
-                    pass
-
-            if next_btn:
-                await next_btn.click()
-            else:
-                break  # no more buttons — end of form
+            except Exception:
+                pass
+            break
 
         return False
 
@@ -622,6 +614,7 @@ async def apply_approved():
 
         applied = 0
         for job in approved:
+            is_easy = job.get("notes", "") == "easy_apply"
             try:
                 success = await apply_to_indeed_job(page, job)
                 status  = "applied" if success else "failed"
@@ -634,7 +627,9 @@ async def apply_approved():
 
             if success:
                 applied += 1
-                send_telegram(f"✅ Applied (Indeed): *{job['title']}* at {job['company']}")
+                if is_easy:
+                    send_telegram(f"✅ Applied (Indeed Easy Apply): *{job['title']}* at {job['company']}")
+                # External jobs — link already sent inside apply_to_indeed_job
             else:
                 send_telegram(f"⚠️ Could not apply: *{job['title']}* at {job['company']}")
 
