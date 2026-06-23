@@ -517,11 +517,14 @@ def handle_command(text):
 
     if cmd == "/login":
         try:
+            # Use python.exe (not pythonw.exe) + CREATE_NEW_CONSOLE so
+            # Playwright can open a visible browser window for login
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
             subprocess.Popen(
-                [PYTHON, str(BASE / "fresh_login.py")],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                [python_exe, str(BASE / "fresh_login.py")],
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
-            return "🔐 Opening LinkedIn login browser on your PC...\nLog in manually if auto-fill doesn't work. Session will be saved automatically."
+            return "🔐 Opening LinkedIn login browser on your PC...\nCredentials will be auto-filled. Complete any 2FA if prompted."
         except Exception as e:
             return f"⚠️ Error: {e}"
 

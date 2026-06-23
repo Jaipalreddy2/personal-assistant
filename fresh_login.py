@@ -7,8 +7,11 @@ import asyncio
 import sys
 import io
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+# pythonw.exe has no console so sys.stdout/stderr are None — guard before wrapping
+if sys.stdout is not None:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+if sys.stderr is not None:
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from playwright.async_api import async_playwright
 from linkedin_browser import get_context, is_logged_in, _autofill_login, PROFILE_DIR
