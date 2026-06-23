@@ -456,115 +456,133 @@ async def _upload_resume(page):
 async def apply_to_indeed_job(page, job):
     """Navigate to job page and apply.
 
-    - easy_apply jobs: fills Indeed's own form and submits
-    - external jobs: sends the direct company apply URL to Telegram
+    "Apply with Indeed" jobs: fills Indeed SmartApply form (requires login).
+    "Apply on company site" jobs: sends direct apply link to Telegram.
     Returns True when action was taken (applied or link sent).
     """
-    is_easy = job.get("notes", "") == "easy_apply"
-
     try:
         await page.goto(job["url"], wait_until="domcontentloaded", timeout=30000)
         await page.wait_for_timeout(2000 + random.randint(500, 1500))
 
-        # Inspect the apply button to determine type
-        btn_info = await page.evaluate("""() => {
-            const container = document.querySelector('#applyButtonLinkContainer, [data-testid="applyButton"]');
-            const btn = container ? container.querySelector('button, a') : document.querySelector('button[id*="apply"], a[id*="apply"]');
-            if (!btn) return null;
-            return {
-                text: (btn.innerText || btn.textContent || '').trim(),
-                href: btn.href || '',
-                tag: btn.tagName
-            };
+        # Detect which button is present
+        btn_type = await page.evaluate("""() => {
+            if (document.querySelector('button[aria-label="Apply with Indeed"]'))
+                return 'indeed';
+            for (const btn of document.querySelectorAll('button')) {
+                const t = (btn.innerText || btn.textContent || '').toLowerCase();
+                if (t.includes('company site') || t.includes('company website'))
+                    return 'external';
+            }
+            return 'unknown';
         }""")
 
-        if not btn_info:
-            # No apply button at all — send link to Telegram
+        # ── External apply: send link to Telegram ─────────────────────────
+        if btn_type != 'indeed':
+            applystart = f"https://ie.indeed.com/applystart?jk={job['id'].replace('indeed_', '')}&from=vj"
             send_telegram(
                 f"🌐 *{job['title']}* at {job['company']}\n"
-                f"Apply manually: {job['url']}"
+                f"[Apply on company site]({applystart})"
             )
-            return True  # treated as "handled"
+            return True
 
-        btn_text = btn_info.get("text", "").lower()
-        is_external_btn = "company site" in btn_text or "company website" in btn_text
+        # ── Apply with Indeed → SmartApply form ───────────────────────────
+        apply_btn = await page.query_selector('button[aria-label="Apply with Indeed"]')
+        if not apply_btn:
+            send_telegram(f"⚠️ Button missing for *{job['title']}* — [apply manually]({job['url']})")
+            return False
 
-        if is_external_btn or not is_easy:
-            # External apply — intercept the popup/redirect to get the real URL
-            try:
-                popup_future = asyncio.ensure_future(
-                    page.wait_for_event("popup", timeout=5000)
-                )
-                await page.evaluate("""() => {
-                    const btn = document.querySelector('#applyButtonLinkContainer button, #applyButtonLinkContainer a, button[id*=apply]');
-                    if (btn) btn.click();
-                }""")
-                try:
-                    popup = await popup_future
-                    await popup.wait_for_load_state("domcontentloaded", timeout=8000)
-                    external_url = popup.url
-                    await popup.close()
-                except Exception:
-                    external_url = job["url"]
-            except Exception:
-                external_url = job["url"]
-
-            send_telegram(
-                f"🌐 *{job['title']}* at {job['company']}\n"
-                f"[Apply on company site]({external_url})"
-            )
-            return True  # link sent — counts as handled
-
-        # ── Indeed Easy Apply form ─────────────────────────────────────────
-        # Click the apply button
-        await page.evaluate("""() => {
-            const btn = document.querySelector('#applyButtonLinkContainer button, button.ia-IndeedApplyButton, [data-testid="applyButton"] button');
-            if (btn) btn.click();
-        }""")
+        await apply_btn.scroll_into_view_if_needed()
+        await apply_btn.click()
         await page.wait_for_timeout(3000)
+
+        # If not logged in, will land on auth page
+        if "secure.indeed.com/auth" in page.url or "accounts.indeed.com" in page.url:
+            send_telegram(
+                f"🔐 Indeed login needed — run /login-indeed first, then retry /applyindeed\n"
+                f"Or [apply manually]({job['url']})"
+            )
+            return False
+
+        # SmartApply form is at smartapply.indeed.com
+        # Wait for the form to load
+        try:
+            await page.wait_for_url("*smartapply.indeed.com*", timeout=10000)
+        except Exception:
+            pass
+        await page.wait_for_timeout(2000)
 
         # Upload resume
         await _upload_resume(page)
 
-        # Fill common fields
-        try:
-            for sel in ["input[name*='name'][type='text']", "input[autocomplete*='name']"]:
-                el = await page.query_selector(sel)
-                if el and not await el.input_value():
-                    await el.fill("Jaipal Kasi Reddy")
-                    break
-        except Exception:
-            pass
-        try:
-            for sel in ["input[type='tel']", "input[name*='phone']"]:
-                el = await page.query_selector(sel)
-                if el and not await el.input_value():
-                    await el.fill(PHONE_NUMBER)
-                    break
-        except Exception:
-            pass
+        # Fill common form fields across SmartApply pages
+        async def fill_fields():
+            try:
+                for sel in ["input[name='name']", "input[autocomplete='name']", "input[placeholder*='name' i]"]:
+                    el = await page.query_selector(sel)
+                    if el and not await el.input_value():
+                        await el.fill("Jaipal Kasi Reddy")
+                        break
+            except Exception:
+                pass
+            try:
+                for sel in ["input[type='tel']", "input[name*='phone']", "input[placeholder*='phone' i]"]:
+                    el = await page.query_selector(sel)
+                    if el and not await el.input_value():
+                        await el.fill(PHONE_NUMBER)
+                        break
+            except Exception:
+                pass
+            try:
+                for sel in ["input[type='email']", "input[name*='email']"]:
+                    el = await page.query_selector(sel)
+                    if el and not await el.input_value():
+                        await el.fill(INDEED_EMAIL)
+                        break
+            except Exception:
+                pass
+            # Fill required text inputs with sensible defaults
+            try:
+                await page.evaluate("""() => {
+                    for (const inp of document.querySelectorAll('input[required], textarea[required]')) {
+                        if (inp.value) continue;
+                        const lbl = (inp.getAttribute('aria-label') || inp.placeholder || '').toLowerCase();
+                        if (lbl.includes('year') || lbl.includes('experience')) inp.value = '1';
+                        else if (lbl.includes('city') || lbl.includes('location')) inp.value = 'Dublin';
+                        else if (lbl.includes('salary')) inp.value = '40000';
+                    }
+                    for (const sel of document.querySelectorAll('select[required]')) {
+                        if (!sel.value && sel.options.length > 1) sel.selectedIndex = 1;
+                    }
+                }""")
+            except Exception:
+                pass
 
-        # Step through multi-page form (up to 8 steps)
-        for _ in range(8):
+        await fill_fields()
+
+        # Step through multi-page SmartApply form (up to 10 steps)
+        for step in range(10):
             await page.wait_for_timeout(1500)
+            await fill_fields()
 
-            # Success check
-            if "apply/confirmation" in page.url or "thankyou" in page.url.lower():
+            # Success
+            if ("confirmation" in page.url or "thankyou" in page.url.lower()
+                    or "applied" in page.url.lower()):
                 return True
             success_el = await page.query_selector(
-                "[data-tn-component*='applicationSubmitted'], [class*='confirmation'], h1[class*='success']"
+                "[class*='confirmation'], [class*='success'], h1[class*='thank'], "
+                "h2[class*='applied'], [data-testid*='confirmation']"
             )
             if success_el:
                 return True
 
             # Submit button
             submit_btn = None
-            for sel in ["button[data-tn-element='submit-button']", "button[type='submit']"]:
+            for sel in ["button[type='submit']", "button[data-testid*='submit']"]:
                 try:
                     el = await page.query_selector(sel)
                     if el and await el.is_visible():
                         t = (await el.inner_text()).strip().lower()
-                        if "submit" in t:
+                        if "submit" in t or "send" in t:
                             submit_btn = el
                             break
                 except Exception:
@@ -574,11 +592,11 @@ async def apply_to_indeed_job(page, job):
                 await page.wait_for_timeout(3000)
                 return True
 
-            # Continue / Next button
+            # Continue / Next
             next_btn = await page.evaluate_handle("""() => {
                 for (const btn of document.querySelectorAll('button')) {
                     const t = (btn.innerText || '').trim().toLowerCase();
-                    if (['continue', 'next', 'save and continue', 'next step'].includes(t)) return btn;
+                    if (['continue', 'next', 'next step', 'save and continue'].includes(t)) return btn;
                 }
                 return null;
             }""")
