@@ -597,33 +597,40 @@ async def apply_to_job(page, job):
         except Exception:
             pass
 
-        # ── Find Easy Apply button ──────────────────────────────────────────
-        apply_btn = None
+        # ── Find Easy Apply element (button or <a> tag) ─────────────────────
+        # LinkedIn uses <a aria-label="Easy Apply to this job"> in some layouts
+        apply_el = None
+        apply_href = None
         for sel in [
+            "a[aria-label='Easy Apply to this job']",
+            "a[aria-label*='Easy Apply']",
             "button[aria-label='Easy Apply to this job']",
             "button[aria-label*='Easy Apply']",
             "button.jobs-apply-button",
         ]:
-            apply_btn = await page.query_selector(sel)
-            if apply_btn:
+            apply_el = await page.query_selector(sel)
+            if apply_el:
+                tag = await apply_el.evaluate("el => el.tagName")
+                if tag == "A":
+                    apply_href = await apply_el.get_attribute("href")
                 break
 
-        if not apply_btn:
-            # Try by button text
-            handle = await page.evaluate_handle("""() => {
-                for (const btn of document.querySelectorAll('button')) {
-                    const t = (btn.innerText || '').trim();
-                    if (t === 'Easy Apply' || t.startsWith('Easy Apply')) return btn;
+        if not apply_el:
+            # Fallback: search all buttons and links for Easy Apply text
+            result = await page.evaluate("""() => {
+                const els = [...document.querySelectorAll('button, a, [role="button"]')];
+                for (const el of els) {
+                    const t = (el.innerText || el.textContent || '').trim();
+                    const a = el.getAttribute('aria-label') || '';
+                    if (t === 'Easy Apply' || a.toLowerCase().includes('easy apply'))
+                        return { tag: el.tagName, href: el.getAttribute('href') || '' };
                 }
                 return null;
             }""")
-            try:
-                if not await handle.evaluate("el => el === null"):
-                    apply_btn = handle
-            except Exception:
-                pass
+            if result:
+                apply_href = result.get("href") or None
 
-        if not apply_btn:
+        if not apply_el and not apply_href:
             # No Easy Apply — try external apply link
             ext_url = await page.evaluate("""() => {
                 for (const a of document.querySelectorAll('a[href]')) {
@@ -647,8 +654,13 @@ async def apply_to_job(page, job):
             return False, "No Easy Apply button — job requires applying on company site"
 
         print(f"  Easy Apply found: {job['title']} @ {job['company']}")
-        await apply_btn.scroll_into_view_if_needed()
-        await apply_btn.click()
+
+        # If it's a link with an apply URL, navigate directly (faster and more reliable)
+        if apply_href and "linkedin.com" in apply_href:
+            await page.goto(apply_href, wait_until="domcontentloaded", timeout=30000)
+        elif apply_el:
+            await apply_el.scroll_into_view_if_needed()
+            await apply_el.click()
         await page.wait_for_timeout(2000)
 
         # Redirected to external ATS
