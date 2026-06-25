@@ -53,6 +53,38 @@ JOB_KEYWORDS = [
     "Junior Site Reliability Engineer",
 ]
 
+FRESHER_SEARCH_KEYWORDS = [
+    "Junior DevOps Engineer",
+    "Graduate DevOps Engineer",
+    "Junior Cloud Engineer",
+    "Graduate Software Engineer",
+    "Junior Software Engineer",
+    "Entry Level DevOps",
+    "Junior Platform Engineer",
+    "Associate DevOps Engineer",
+    "Junior Python Developer",
+    "Junior AWS Engineer",
+    "Graduate Cloud Engineer",
+    "Junior Site Reliability Engineer",
+    "Entry Level Software Engineer",
+    "Graduate IT Engineer",
+]
+
+INTERNSHIP_SEARCH_KEYWORDS = [
+    "Software Engineer Intern",
+    "DevOps Intern",
+    "Cloud Engineer Intern",
+    "IT Intern",
+    "Python Developer Intern",
+    "Data Engineer Intern",
+    "Platform Engineer Intern",
+    "AWS Intern",
+    "Site Reliability Engineer Intern",
+    "Software Intern",
+    "Technology Intern",
+    "Cloud Intern",
+]
+
 # Keywords that indicate a role is suitable for freshers/graduates
 FRESHER_KEYWORDS = [
     "junior", "graduate", "entry level", "entry-level", "fresher",
@@ -81,17 +113,26 @@ TECH_KEYWORDS = [
 def is_fresher_role(title):
     """Return True if the job title is a relevant tech role for a fresher/graduate."""
     title_lower = title.lower()
-    # Skip if clearly senior
     if any(kw in title_lower for kw in SENIOR_KEYWORDS):
         return False
-    # Skip if not a tech role at all (e.g. Sales, BDR, Marketing)
     if not any(kw in title_lower for kw in TECH_KEYWORDS):
         return False
-    # Auto-approve if explicitly junior/graduate
-    if any(kw in title_lower for kw in FRESHER_KEYWORDS):
-        return True
-    # Accept generic tech titles like "DevOps Engineer", "Cloud Engineer"
     return True
+
+
+def detect_experience_level(title):
+    """Detect experience level from job title. Returns (emoji, label) tuple."""
+    t = title.lower()
+    if any(w in t for w in ["intern", "internship", "placement", "work placement"]):
+        return "🎓", "Internship"
+    if any(w in t for w in ["junior", "jr.", "jr ", "graduate", "grad", "entry level",
+                             "entry-level", "fresher", "trainee", "apprentice",
+                             "associate", "early career", "new grad"]):
+        return "🌱", "Fresher / Entry Level"
+    if any(w in t for w in ["senior", "sr.", "sr ", "lead", "principal", "staff",
+                             "manager", "director", "head of", "vp"]):
+        return "⬆️", "Senior"
+    return "💼", "Mid Level"
 
 LINKEDIN_EMAIL    = config.get("LINKEDIN_EMAIL")
 LINKEDIN_PASSWORD = config.get("LINKEDIN_PASSWORD")
@@ -318,7 +359,7 @@ async def login_linkedin_visible():
             await context.close()
 
 
-async def search_jobs(page, keyword, date_filter=None):
+async def search_jobs(page, keyword, date_filter=None, exp_filter=None, job_type_filter=None):
     """Search Easy Apply jobs and return list of job cards."""
     url = (
         f"https://www.linkedin.com/jobs/search/?"
@@ -329,6 +370,10 @@ async def search_jobs(page, keyword, date_filter=None):
     )
     if date_filter:
         url += f"&f_TPR={date_filter}"
+    if exp_filter:
+        url += f"&f_E={exp_filter}"
+    if job_type_filter:
+        url += f"&f_JT={job_type_filter}"
     try:
         await page.goto(url, wait_until="domcontentloaded")
     except Exception as e:
@@ -414,12 +459,15 @@ async def search_jobs(page, keyword, date_filter=None):
             # Normalise to www subdomain so session cookies always match
             full_url = full_url.replace("ie.linkedin.com", "www.linkedin.com")
 
+            exp_emoji, exp_label = detect_experience_level(title)
             jobs.append({
-                "id":       job_id,
-                "title":    title,
-                "company":  company,
-                "location": location,
-                "url":      full_url.split("?")[0],
+                "id":               job_id,
+                "title":            title,
+                "company":          company,
+                "location":         location,
+                "url":              full_url.split("?")[0],
+                "exp_emoji":        exp_emoji,
+                "exp_label":        exp_label,
             })
 
         except Exception:
@@ -734,10 +782,12 @@ async def find_and_connect_recruiter(page, job):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-async def find_jobs():
+async def find_jobs(keywords=None, exp_filter=None, job_type_filter=None, label="Jobs"):
     """Find new relevant Easy Apply jobs and list them in Telegram. Does NOT apply."""
     init_db()
     LAST_FIND_FILE.write_text(datetime.now().isoformat())
+    if keywords is None:
+        keywords = JOB_KEYWORDS
     new_jobs = 0
     found_jobs = []
 
@@ -747,11 +797,10 @@ async def find_jobs():
             return
 
         session_expired = False
-        for keyword in JOB_KEYWORDS:
+        for keyword in keywords:
             print(f"Searching: {keyword}...")
-            jobs = await search_jobs(page, keyword)
+            jobs = await search_jobs(page, keyword, exp_filter=exp_filter, job_type_filter=job_type_filter)
 
-            # search_jobs returns [] on redirect or navigation error — check if session died
             if not jobs and any(s in page.url for s in ("login", "authwall", "checkpoint", "uas/")):
                 print("Session expired mid-search — triggering re-login...")
                 session_expired = True
@@ -768,17 +817,35 @@ async def find_jobs():
         await context.close()
 
         if session_expired:
-            send_telegram("❌ LinkedIn session expired mid-search — please run /login, then retry /findjobs.")
+            send_telegram("❌ LinkedIn session expired mid-search — please run /login, then retry.")
 
     if new_jobs == 0:
-        send_telegram("💼 *Job Search Complete*\nNo new relevant jobs found. Try again later.")
+        send_telegram(f"💼 *{label} Search Complete*\nNo new jobs found. Try again later.")
     else:
-        # Send a single batched summary instead of one message per job
-        lines = [f"💼 *Found {new_jobs} new jobs* — tap /applyjobs to apply to all\n"]
+        lines = [f"💼 *Found {new_jobs} new {label}* — tap /applyjobs to apply\n"]
         for j in found_jobs:
             loc = f" · {j['location']}" if j.get('location') else ""
-            lines.append(f"• *{j['title']}* @ {j['company']}{loc}")
+            exp = f"{j.get('exp_emoji','💼')} {j.get('exp_label','')}"
+            lines.append(f"• *{j['title']}* @ {j['company']}{loc}\n  {exp}")
         send_telegram("\n".join(lines))
+
+
+async def find_fresher_jobs():
+    """Find entry-level and fresher jobs only (LinkedIn f_E=2 filter)."""
+    await find_jobs(
+        keywords=FRESHER_SEARCH_KEYWORDS,
+        exp_filter="2",  # Entry level
+        label="Fresher / Entry Level Jobs"
+    )
+
+
+async def find_internship_jobs():
+    """Find internship jobs only (LinkedIn f_JT=I filter)."""
+    await find_jobs(
+        keywords=INTERNSHIP_SEARCH_KEYWORDS,
+        job_type_filter="I",  # Internship job type
+        label="Internship Jobs"
+    )
 
 
 async def apply_approved(from_find=False):
@@ -1128,6 +1195,10 @@ if __name__ == "__main__":
 
     if cmd == "find":
         asyncio.run(find_jobs())
+    elif cmd == "findfresher":
+        asyncio.run(find_fresher_jobs())
+    elif cmd == "findinternship":
+        asyncio.run(find_internship_jobs())
     elif cmd == "apply":
         asyncio.run(apply_approved())
     elif cmd == "loginapply":

@@ -480,7 +480,33 @@ def handle_command(text):
                 stdout=log_file, stderr=log_file,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
-            return "🔍 Searching LinkedIn for Easy Apply jobs matching your profile...\nResults will appear below — tap ✅ Apply or ❌ Skip on each one."
+            return "🔍 Searching LinkedIn jobs... results coming shortly."
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
+    if cmd == "/findfresher":
+        try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
+            subprocess.Popen(
+                [python_exe, "-u", str(BASE / "linkedin_apply.py"), "findfresher"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            return "🌱 Searching LinkedIn for Fresher / Entry Level jobs... results coming shortly."
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
+    if cmd == "/findinternship":
+        try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
+            subprocess.Popen(
+                [python_exe, "-u", str(BASE / "linkedin_apply.py"), "findinternship"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            return "🎓 Searching LinkedIn for Internship jobs... results coming shortly."
         except Exception as e:
             return f"⚠️ Error: {e}"
 
@@ -642,22 +668,29 @@ def handle_command(text):
 
     if cmd == "/help":
         return (
-            "/findjobs — find LinkedIn jobs\n"
-            "/applyjobs — apply approved jobs\n"
+            "💼 *LinkedIn Jobs*\n"
+            "/findjobs — all LinkedIn jobs\n"
+            "/findfresher — entry level jobs\n"
+            "/findinternship — internship jobs\n"
+            "/applyjobs — apply found jobs\n"
             "/autoapply — find & apply now\n"
             "/savedjobs — apply saved jobs\n"
             "/login — LinkedIn login\n"
-            "/resetfailed — retry failed\n"
+            "/resetfailed — retry failed\n\n"
+            "🔍 *Indeed Jobs*\n"
             "/findindeed — find Indeed jobs\n"
             "/applyindeed — apply Indeed jobs\n"
             "/autoapply\\-indeed — Indeed auto apply\n"
             "/savedjobs\\-indeed — Indeed saved jobs\n"
             "/approveall\\-indeed — approve all Indeed\n"
-            "/login\\-indeed — Indeed login\n"
+            "/login\\-indeed — Indeed login\n\n"
+            "📊 *Tracker*\n"
             "/mystatus — application stats\n"
-            "/update — update job stage\n"
+            "/update — update job stage\n\n"
+            "🔗 *Activity*\n"
             "/feed — LinkedIn feed\n"
-            "/post — LinkedIn post\n"
+            "/post — LinkedIn post\n\n"
+            "📅 *Daily*\n"
             "/schedule — today's calendar\n"
             "/emails — Gmail summary\n"
             "/jobs — job alert emails\n"
