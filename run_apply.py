@@ -151,10 +151,10 @@ async def main():
 
             # Apply
             try:
-                success = await apply_to_job(page, job)
+                success, reason = await apply_to_job(page, job)
                 status = "applied" if success else "failed"
             except Exception as e:
-                print(f"  Apply error: {e}")
+                reason = str(e)
                 status = "failed"
                 success = False
 
@@ -169,7 +169,10 @@ async def main():
                 except Exception:
                     pass
             else:
-                send_telegram(f"⚠️ Could not apply: *{job['title']}* at {job['company']}")
+                msg = f"⚠️ Could not apply: *{job['title']}* at {job['company']}"
+                if reason:
+                    msg += f"\n  Reason: {reason}"
+                send_telegram(msg)
 
             delay = random.randint(12, 22)
             print(f"  Sleeping {delay}s before next job...")

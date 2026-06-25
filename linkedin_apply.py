@@ -559,7 +559,7 @@ async def _fill_required_fields(page):
 
 
 async def apply_to_job(page, job):
-    """Apply to a single Easy Apply job. Returns True on success."""
+    """Apply to a single Easy Apply job. Returns (success, reason) tuple."""
     try:
         job_id = job["id"]
         urls_to_try = [
@@ -582,7 +582,7 @@ async def apply_to_job(page, job):
 
         if not nav_ok:
             print(f"  Nav failed: {job['title']}")
-            return False
+            return False, "Could not load job page (navigation timeout)"
 
         await page.wait_for_timeout(2000 + random.randint(500, 1500))
         await dismiss_cookie_banner(page)
@@ -638,11 +638,13 @@ async def apply_to_job(page, job):
                 print(f"  External link: {ext_url[:80]}")
                 try:
                     from external_apply import apply_external
-                    return await apply_external(page, ext_url, job)
+                    result = await apply_external(page, ext_url, job)
+                    return result, ("" if result else "External site apply failed")
                 except Exception as e:
                     print(f"  External apply error: {e}")
+                    return False, f"External site error: {e}"
             print(f"  No apply button found for {job['title']}")
-            return False
+            return False, "No Easy Apply button — job requires applying on company site"
 
         print(f"  Easy Apply found: {job['title']} @ {job['company']}")
         await apply_btn.scroll_into_view_if_needed()
@@ -653,10 +655,11 @@ async def apply_to_job(page, job):
         if 'linkedin.com' not in page.url:
             try:
                 from external_apply import apply_external
-                return await apply_external(page, page.url, job)
+                result = await apply_external(page, page.url, job)
+                return result, ("" if result else "External ATS apply failed")
             except Exception as e:
                 print(f"  External apply error: {e}")
-                return False
+                return False, f"External ATS error: {e}"
 
         # ── Walk through Easy Apply steps ──────────────────────────────────
         await _upload_resume_if_needed(page)
@@ -701,23 +704,23 @@ async def apply_to_job(page, job):
             elif clicked == 'submit':
                 await page.wait_for_timeout(2000)
                 print(f"  ✅ Applied: {job['title']} @ {job['company']}")
-                return True
+                return True, ""
             elif clicked == 'done':
                 print(f"  ✅ Applied: {job['title']} @ {job['company']}")
-                return True
+                return True, ""
             elif clicked is None:
                 stuck_count += 1
                 if stuck_count >= 2:
                     btns = await page.evaluate("() => Array.from(document.querySelectorAll('button')).map(b => (b.innerText||b.getAttribute('aria-label')||'').trim()).filter(t=>t).slice(0,8)")
                     print(f"  Stuck at step {step}. Buttons: {btns}")
-                    break
+                    return False, f"Form stuck — buttons visible: {', '.join(btns) if btns else 'none'}"
                 await page.wait_for_timeout(2000)
 
-        return False
+        return False, "Form did not reach submit after all steps"
 
     except Exception as e:
         print(f"  ❌ Error applying to {job['title']}: {e}")
-        return False
+        return False, str(e)
 
 
 async def find_and_connect_recruiter(page, job):
@@ -885,10 +888,10 @@ async def apply_approved(from_find=False):
 
             # 2. Apply
             try:
-                success = await apply_to_job(page, job)
+                success, reason = await apply_to_job(page, job)
                 status = "applied" if success else "failed"
             except Exception as e:
-                print(f"  Apply error for {job['title']}: {e}")
+                reason = str(e)
                 status = "failed"
                 success = False
             update_job_status(job["id"], status)
@@ -912,7 +915,10 @@ async def apply_approved(from_find=False):
                 except Exception as e:
                     print(f"  Recruiter outreach error: {e}")
             else:
-                send_telegram(f"⚠️ Could not apply: *{job['title']}* at {job['company']}")
+                msg = f"⚠️ Could not apply: *{job['title']}* at {job['company']}"
+                if reason:
+                    msg += f"\n  Reason: {reason}"
+                send_telegram(msg)
 
             await asyncio.sleep(random.randint(10, 20))
 
@@ -971,10 +977,10 @@ async def auto_apply():
         applied = 0
         for job in new_jobs:
             try:
-                success = await apply_to_job(page, job)
+                success, reason = await apply_to_job(page, job)
                 status = "applied" if success else "failed"
             except Exception as e:
-                print(f"  Apply error for {job['title']}: {e}")
+                reason = str(e)
                 status = "failed"
                 success = False
             update_job_status(job["id"], status)
@@ -993,7 +999,10 @@ async def auto_apply():
                 except Exception as e:
                     print(f"  Recruiter error: {e}")
             else:
-                send_telegram(f"⚠️ Could not apply: *{job['title']}* at {job['company']}")
+                msg = f"⚠️ Could not apply: *{job['title']}* at {job['company']}"
+                if reason:
+                    msg += f"\n  Reason: {reason}"
+                send_telegram(msg)
 
             await asyncio.sleep(random.randint(10, 20))
 
@@ -1084,9 +1093,9 @@ async def apply_saved_jobs():
 
             # Try Easy Apply
             try:
-                success = await apply_to_job(page, job)
+                success, reason = await apply_to_job(page, job)
             except Exception as e:
-                print(f"  Apply error: {e}")
+                reason = str(e)
                 success = False
 
             if success:
@@ -1100,6 +1109,10 @@ async def apply_saved_jobs():
                 except Exception:
                     pass
             else:
+                if reason and "No Easy Apply" not in reason:
+                    msg = f"⚠️ Could not apply: *{job['title']}*" + (f" at {job['company']}" if job['company'] else "")
+                    msg += f"\n  Reason: {reason}"
+                    send_telegram(msg)
                 # Not Easy Apply — send link for manual application
                 update_job_status(job["id"], "pending")
                 external.append(job)
@@ -1165,10 +1178,10 @@ async def login_then_apply():
                 print(f"  Resume tailor error: {e}")
 
             try:
-                success = await apply_to_job(page, job)
+                success, reason = await apply_to_job(page, job)
                 status = "applied" if success else "failed"
             except Exception as e:
-                print(f"  Apply error: {e}")
+                reason = str(e)
                 status = "failed"
                 success = False
             update_job_status(job["id"], status)
@@ -1183,7 +1196,10 @@ async def login_then_apply():
                 except Exception:
                     pass
             else:
-                send_telegram(f"⚠️ Could not apply: *{job['title']}* at {job['company']}")
+                msg = f"⚠️ Could not apply: *{job['title']}* at {job['company']}"
+                if reason:
+                    msg += f"\n  Reason: {reason}"
+                send_telegram(msg)
 
             await asyncio.sleep(random.randint(8, 15))
 

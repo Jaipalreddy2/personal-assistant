@@ -545,7 +545,7 @@ async def apply_to_indeed_job(page, job):
 
     "Apply with Indeed" jobs: fills Indeed SmartApply form (requires login).
     "Apply on company site" jobs: sends direct apply link to Telegram.
-    Returns True when action was taken (applied or link sent).
+    Returns (success, reason) tuple.
     """
     try:
         await page.goto(job["url"], wait_until="domcontentloaded", timeout=30000)
@@ -570,13 +570,13 @@ async def apply_to_indeed_job(page, job):
                 f"🌐 *{job['title']}* at {job['company']}\n"
                 f"[Apply on company site]({applystart})"
             )
-            return True
+            return True, ""
 
         # ── Apply with Indeed → SmartApply form ───────────────────────────
         apply_btn = await page.query_selector('button[aria-label="Apply with Indeed"]')
         if not apply_btn:
             send_telegram(f"⚠️ Button missing for *{job['title']}* — [apply manually]({job['url']})")
-            return False
+            return False, "Apply with Indeed button not found on page"
 
         await apply_btn.scroll_into_view_if_needed()
         await apply_btn.click()
@@ -585,10 +585,10 @@ async def apply_to_indeed_job(page, job):
         # If not logged in, will land on auth page
         if "secure.indeed.com/auth" in page.url or "accounts.indeed.com" in page.url:
             send_telegram(
-                f"🔐 Indeed login needed — run /login-indeed first, then retry /applyindeed\n"
+                f"🔐 Indeed login needed — run /ind\\_login first, then retry /ind\\_apply\n"
                 f"Or [apply manually]({job['url']})"
             )
-            return False
+            return False, "Not logged in to Indeed — run /ind_login"
 
         # SmartApply form is at smartapply.indeed.com
         # Wait for the form to load
@@ -654,13 +654,13 @@ async def apply_to_indeed_job(page, job):
             # Success
             if ("confirmation" in page.url or "thankyou" in page.url.lower()
                     or "applied" in page.url.lower()):
-                return True
+                return True, ""
             success_el = await page.query_selector(
                 "[class*='confirmation'], [class*='success'], h1[class*='thank'], "
                 "h2[class*='applied'], [data-testid*='confirmation']"
             )
             if success_el:
-                return True
+                return True, ""
 
             # Submit button
             submit_btn = None
@@ -677,7 +677,7 @@ async def apply_to_indeed_job(page, job):
             if submit_btn:
                 await submit_btn.click()
                 await page.wait_for_timeout(3000)
-                return True
+                return True, ""
 
             # Continue / Next
             next_btn = await page.evaluate_handle("""() => {
@@ -695,11 +695,11 @@ async def apply_to_indeed_job(page, job):
                 pass
             break
 
-        return False
+        return False, "SmartApply form did not reach confirmation after all steps"
 
     except Exception as e:
         print(f"  Indeed apply error for {job['title']}: {e}")
-        return False
+        return False, str(e)
 
 
 async def apply_approved():
@@ -727,10 +727,10 @@ async def apply_approved():
         for job in approved:
             is_easy = job.get("notes", "") == "easy_apply"
             try:
-                success = await apply_to_indeed_job(page, job)
+                success, reason = await apply_to_indeed_job(page, job)
                 status  = "applied" if success else "failed"
             except Exception as e:
-                print(f"  Error: {e}")
+                reason  = str(e)
                 status  = "failed"
                 success = False
 
@@ -742,7 +742,10 @@ async def apply_approved():
                     send_telegram(f"✅ Applied (Indeed Easy Apply): *{job['title']}* at {job['company']}")
                 # External jobs — link already sent inside apply_to_indeed_job
             else:
-                send_telegram(f"⚠️ Could not apply: *{job['title']}* at {job['company']}")
+                msg = f"⚠️ Could not apply: *{job['title']}* at {job['company']}"
+                if reason:
+                    msg += f"\n  Reason: {reason}"
+                send_telegram(msg)
 
             await asyncio.sleep(random.randint(8, 15))
 
@@ -870,10 +873,10 @@ async def auto_apply_indeed():
         applied = 0
         for job in all_new:
             try:
-                success = await apply_to_indeed_job(page, job)
+                success, reason = await apply_to_indeed_job(page, job)
                 status = "applied" if success else "failed"
             except Exception as e:
-                print(f"  Error: {e}")
+                reason = str(e)
                 status = "failed"
                 success = False
 
@@ -882,7 +885,10 @@ async def auto_apply_indeed():
                 applied += 1
                 send_telegram(f"✅ Applied: *{job['title']}* at {job['company']}")
             elif not success:
-                send_telegram(f"⚠️ Could not apply: *{job['title']}* at {job['company']}")
+                msg = f"⚠️ Could not apply: *{job['title']}* at {job['company']}"
+                if reason:
+                    msg += f"\n  Reason: {reason}"
+                send_telegram(msg)
 
             await asyncio.sleep(random.randint(8, 15))
 
@@ -942,16 +948,19 @@ async def apply_indeed_saved():
                     update_job_status(job["id"], "approved")
 
                 try:
-                    success = await apply_to_indeed_job(page, job)
+                    success, reason = await apply_to_indeed_job(page, job)
                     status = "applied" if success else "failed"
                 except Exception as e:
-                    print(f"  Error: {e}")
+                    reason = str(e)
                     status = "failed"
                     success = False
 
                 update_job_status(job["id"], status)
                 if success:
                     applied += 1
+                elif reason:
+                    msg = f"⚠️ Could not apply: *{job['title']}* at {job['company']}\n  Reason: {reason}"
+                    send_telegram(msg)
                 await asyncio.sleep(random.randint(8, 15))
 
             await context.close()
