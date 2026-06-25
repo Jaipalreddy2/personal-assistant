@@ -523,7 +523,7 @@ def handle_command(text):
         except Exception as e:
             return f"⚠️ Error: {e}"
 
-    if cmd == "/findfresher-indeed":
+    if cmd == "/ind_fresher":
         try:
             python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
             log_file = open(BASE / "bot.log", "a")
@@ -536,7 +536,7 @@ def handle_command(text):
         except Exception as e:
             return f"⚠️ Error: {e}"
 
-    if cmd == "/findinternship-indeed":
+    if cmd == "/ind_intern":
         try:
             python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
             log_file = open(BASE / "bot.log", "a")
@@ -549,7 +549,7 @@ def handle_command(text):
         except Exception as e:
             return f"⚠️ Error: {e}"
 
-    if cmd == "/applyindeed":
+    if cmd == "/ind_apply":
         try:
             python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
             log_file = open(BASE / "bot.log", "a")
@@ -562,18 +562,20 @@ def handle_command(text):
         except Exception as e:
             return f"⚠️ Error: {e}"
 
-    if cmd == "/login-indeed":
+    if cmd == "/ind_login":
         try:
             python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
             subprocess.Popen(
                 [python_exe, str(BASE / "indeed_jobs.py"), "login"],
+                stdout=log_file, stderr=log_file,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
-            return "🔐 Opening Indeed login browser on your PC...\nCredentials will be auto-filled. Complete any 2FA if prompted."
+            return "🔐 Indeed login browser opening... credentials auto-filled."
         except Exception as e:
             return f"⚠️ Error: {e}"
 
-    if cmd == "/autoapply-indeed":
+    if cmd == "/ind_autoapply":
         try:
             python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
             log_file = open(BASE / "bot.log", "a")
@@ -582,11 +584,11 @@ def handle_command(text):
                 stdout=log_file, stderr=log_file,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
-            return "🤖 Indeed Auto Apply started — finding jobs and applying immediately, no approval needed!"
+            return "🤖 Indeed Auto Apply started — finding & applying immediately!"
         except Exception as e:
             return f"⚠️ Error: {e}"
 
-    if cmd == "/savedjobs-indeed":
+    if cmd == "/ind_savedjobs":
         try:
             python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
             log_file = open(BASE / "bot.log", "a")
@@ -595,11 +597,11 @@ def handle_command(text):
                 stdout=log_file, stderr=log_file,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
-            return "🔖 Applying to your Indeed Saved Jobs now... results coming shortly!"
+            return "🔖 Applying to Indeed Saved Jobs now..."
         except Exception as e:
             return f"⚠️ Error: {e}"
 
-    if cmd == "/approveall-indeed":
+    if cmd == "/ind_approveall":
         try:
             python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
             log_file = open(BASE / "bot.log", "a")
@@ -608,7 +610,7 @@ def handle_command(text):
                 stdout=log_file, stderr=log_file,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
-            return "✅ Approving all pending Indeed jobs... then run /applyindeed to apply!"
+            return "✅ Approving all pending Indeed jobs... run /ind_apply to apply!"
         except Exception as e:
             return f"⚠️ Error: {e}"
 
@@ -694,24 +696,24 @@ def handle_command(text):
 
     if cmd == "/help":
         return (
-            "💼 *LinkedIn Jobs*\n"
-            "/findjobs — all LinkedIn jobs\n"
-            "/findfresher — entry level jobs\n"
-            "/findinternship — internship jobs\n"
+            "💼 *LinkedIn*\n"
+            "/findjobs — all jobs\n"
+            "/findfresher — entry level\n"
+            "/findinternship — internships\n"
             "/applyjobs — apply found jobs\n"
             "/autoapply — find & apply now\n"
-            "/savedjobs — apply saved jobs\n"
+            "/savedjobs — apply saved\n"
             "/login — LinkedIn login\n"
             "/resetfailed — retry failed\n\n"
-            "🔍 *Indeed Jobs*\n"
-            "/findindeed — all Indeed jobs\n"
-            "/findfresher\\-indeed — entry level jobs\n"
-            "/findinternship\\-indeed — internship jobs\n"
-            "/applyindeed — apply found jobs\n"
-            "/autoapply\\-indeed — find & apply now\n"
-            "/savedjobs\\-indeed — apply saved jobs\n"
-            "/approveall\\-indeed — approve all\n"
-            "/login\\-indeed — Indeed login\n\n"
+            "🔍 *Indeed*\n"
+            "/findindeed — all jobs\n"
+            "/ind\\_fresher — entry level\n"
+            "/ind\\_intern — internships\n"
+            "/ind\\_apply — apply found jobs\n"
+            "/ind\\_autoapply — find & apply now\n"
+            "/ind\\_savedjobs — apply saved\n"
+            "/ind\\_approveall — approve all\n"
+            "/ind\\_login — Indeed login\n\n"
             "📊 *Tracker*\n"
             "/mystatus — application stats\n"
             "/update — update job stage\n\n"
