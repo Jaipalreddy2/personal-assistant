@@ -341,7 +341,8 @@ async def scrape_indeed_keyword(page, keyword, days=14, exp_level=None, job_type
 async def find_jobs(keywords=None, exp_level=None, job_type=None, label="Jobs"):
     """Search keywords via Playwright, save new jobs, send to Telegram for approval."""
     init_db()
-    LAST_FIND_FILE.write_text(datetime.now().isoformat())
+    from datetime import timedelta
+    LAST_FIND_FILE.write_text((datetime.utcnow() - timedelta(seconds=5)).strftime('%Y-%m-%d %H:%M:%S'))
     if keywords is None:
         keywords = JOB_KEYWORDS
     all_new = []

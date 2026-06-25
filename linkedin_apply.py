@@ -785,7 +785,8 @@ async def find_and_connect_recruiter(page, job):
 async def find_jobs(keywords=None, exp_filter=None, job_type_filter=None, label="Jobs"):
     """Find new relevant Easy Apply jobs and list them in Telegram. Does NOT apply."""
     init_db()
-    LAST_FIND_FILE.write_text(datetime.now().isoformat())
+    from datetime import timedelta
+    LAST_FIND_FILE.write_text((datetime.utcnow() - timedelta(seconds=5)).strftime('%Y-%m-%d %H:%M:%S'))
     if keywords is None:
         keywords = JOB_KEYWORDS
     new_jobs = 0
