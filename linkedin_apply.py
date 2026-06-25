@@ -318,7 +318,7 @@ async def login_linkedin_visible():
             await context.close()
 
 
-async def search_jobs(page, keyword):
+async def search_jobs(page, keyword, date_filter=None):
     """Search Easy Apply jobs and return list of job cards."""
     url = (
         f"https://www.linkedin.com/jobs/search/?"
@@ -327,6 +327,8 @@ async def search_jobs(page, keyword):
         f"&f_AL=true"
         f"&sortBy=DD"
     )
+    if date_filter:
+        url += f"&f_TPR={date_filter}"
     try:
         await page.goto(url, wait_until="domcontentloaded")
     except Exception as e:
@@ -877,10 +879,11 @@ async def auto_apply():
         if context is None:
             return
 
-        # Phase 1: find all new jobs
+        # Phase 1: find new jobs posted in last 4 weeks
+        FOUR_WEEKS = "r2419200"
         new_jobs = []
         for keyword in JOB_KEYWORDS:
-            jobs = await search_jobs(page, keyword)
+            jobs = await search_jobs(page, keyword, date_filter=FOUR_WEEKS)
             for job in jobs:
                 if not already_seen(job["id"]):
                     save_job(job)
