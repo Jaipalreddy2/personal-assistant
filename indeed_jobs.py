@@ -374,10 +374,19 @@ async def find_jobs(keywords=None, exp_level=None, job_type=None, label="Jobs"):
         send_telegram(f"🔍 *Indeed {label}*: No new jobs found this time.")
         return
 
-    send_telegram(f"🔍 *Indeed {label}*: Found *{len(all_new)} new jobs!* Sending for approval...")
+    # Mark all found jobs as approved and show summary
     for job in all_new:
-        send_job_for_approval(job)
-        await asyncio.sleep(0.5)
+        update_job_status(job["id"], "approved")
+
+    lines = [f"🔍 *Indeed {label}*: Found *{len(all_new)} new jobs* — applying now...\n"]
+    for job in all_new:
+        exp_emoji, exp_label = detect_experience_level(job["title"])
+        apply_tag = "⚡" if job.get("easy_apply") else "🌐"
+        lines.append(f"• *{job['title']}* @ {job['company']}\n  {apply_tag} {exp_emoji} {exp_label}")
+    send_telegram("\n".join(lines))
+
+    # Auto-apply immediately after finding
+    await apply_approved()
 
 
 async def find_fresher_jobs():

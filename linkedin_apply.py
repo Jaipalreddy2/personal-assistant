@@ -822,13 +822,17 @@ async def find_jobs(keywords=None, exp_filter=None, job_type_filter=None, label=
 
     if new_jobs == 0:
         send_telegram(f"💼 *{label} Search Complete*\nNo new jobs found. Try again later.")
-    else:
-        lines = [f"💼 *Found {new_jobs} new {label}* — tap /applyjobs to apply\n"]
-        for j in found_jobs:
-            loc = f" · {j['location']}" if j.get('location') else ""
-            exp = f"{j.get('exp_emoji','💼')} {j.get('exp_label','')}"
-            lines.append(f"• *{j['title']}* @ {j['company']}{loc}\n  {exp}")
-        send_telegram("\n".join(lines))
+        return
+
+    lines = [f"💼 *Found {new_jobs} new {label}* — applying now...\n"]
+    for j in found_jobs:
+        loc = f" · {j['location']}" if j.get('location') else ""
+        exp = f"{j.get('exp_emoji','💼')} {j.get('exp_label','')}"
+        lines.append(f"• *{j['title']}* @ {j['company']}{loc}\n  {exp}")
+    send_telegram("\n".join(lines))
+
+    # Auto-apply immediately after finding
+    await login_then_apply()
 
 
 async def find_fresher_jobs():
