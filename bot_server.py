@@ -478,7 +478,7 @@ def handle_command(text):
             subprocess.Popen(
                 [python_exe, "-u", str(BASE / "linkedin_apply.py"), "find"],
                 stdout=log_file, stderr=log_file,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             return "🔍 Searching LinkedIn for Easy Apply jobs matching your profile...\nResults will appear below — tap ✅ Apply or ❌ Skip on each one."
         except Exception as e:
@@ -491,7 +491,7 @@ def handle_command(text):
             subprocess.Popen(
                 [python_exe, "-u", str(BASE / "indeed_jobs.py"), "find"],
                 stdout=log_file, stderr=log_file,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             return "🔍 Searching Indeed for jobs in Dublin... results coming shortly!\nTap ✅ Apply or ❌ Skip on each one."
         except Exception as e:
@@ -504,7 +504,7 @@ def handle_command(text):
             subprocess.Popen(
                 [python_exe, "-u", str(BASE / "indeed_jobs.py"), "apply"],
                 stdout=log_file, stderr=log_file,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             return "🚀 Applying to approved Indeed jobs now... updates coming shortly!"
         except Exception as e:
@@ -515,7 +515,7 @@ def handle_command(text):
             python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
             subprocess.Popen(
                 [python_exe, str(BASE / "indeed_jobs.py"), "login"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             return "🔐 Opening Indeed login browser on your PC...\nCredentials will be auto-filled. Complete any 2FA if prompted."
         except Exception as e:
@@ -528,7 +528,7 @@ def handle_command(text):
             subprocess.Popen(
                 [python_exe, "-u", str(BASE / "indeed_jobs.py"), "autoapply"],
                 stdout=log_file, stderr=log_file,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             return "🤖 Indeed Auto Apply started — finding jobs and applying immediately, no approval needed!"
         except Exception as e:
@@ -541,7 +541,7 @@ def handle_command(text):
             subprocess.Popen(
                 [python_exe, "-u", str(BASE / "indeed_jobs.py"), "savedjobs"],
                 stdout=log_file, stderr=log_file,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             return "🔖 Applying to your Indeed Saved Jobs now... results coming shortly!"
         except Exception as e:
@@ -554,7 +554,7 @@ def handle_command(text):
             subprocess.Popen(
                 [python_exe, "-u", str(BASE / "indeed_jobs.py"), "approveall"],
                 stdout=log_file, stderr=log_file,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             return "✅ Approving all pending Indeed jobs... then run /applyindeed to apply!"
         except Exception as e:
@@ -577,7 +577,7 @@ def handle_command(text):
             subprocess.Popen(
                 [python_exe, "-u", str(BASE / "linkedin_apply.py"), "loginapply"],
                 stdout=log_file, stderr=log_file,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             return "🚀 Applying to approved jobs now... results will arrive here shortly!"
         except Exception as e:
@@ -590,7 +590,7 @@ def handle_command(text):
             subprocess.Popen(
                 [python_exe, "-u", str(BASE / "linkedin_apply.py"), "autoapply"],
                 stdout=log_file, stderr=log_file,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             return "🤖 Auto-applying to all new Easy Apply jobs — no approval needed! Updates coming shortly."
         except Exception as e:
@@ -603,7 +603,7 @@ def handle_command(text):
             subprocess.Popen(
                 [python_exe, "-u", str(BASE / "linkedin_apply.py"), "savedjobs"],
                 stdout=log_file, stderr=log_file,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             return "🔖 Applying to your LinkedIn Saved Jobs now... results coming shortly!"
         except Exception as e:
@@ -611,12 +611,10 @@ def handle_command(text):
 
     if cmd == "/login":
         try:
-            # Use python.exe (not pythonw.exe) + CREATE_NEW_CONSOLE so
-            # Playwright can open a visible browser window for login
             python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
             subprocess.Popen(
                 [python_exe, str(BASE / "fresh_login.py")],
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             return "🔐 Opening LinkedIn login browser on your PC...\nCredentials will be auto-filled. Complete any 2FA if prompted."
         except Exception as e:
