@@ -50,6 +50,40 @@ JOB_KEYWORDS = [
     "Junior Site Reliability Engineer",
 ]
 
+FRESHER_SEARCH_KEYWORDS = [
+    "Junior DevOps Engineer",
+    "Graduate DevOps Engineer",
+    "Junior Cloud Engineer",
+    "Graduate Software Engineer",
+    "Junior Software Engineer",
+    "Entry Level DevOps",
+    "Junior Platform Engineer",
+    "Associate DevOps Engineer",
+    "Junior Python Developer",
+    "Junior AWS Engineer",
+    "Graduate Cloud Engineer",
+    "Junior Site Reliability Engineer",
+    "Entry Level Software Engineer",
+    "Graduate IT Engineer",
+]
+
+INTERNSHIP_SEARCH_KEYWORDS = [
+    "Software Engineer Intern",
+    "DevOps Intern",
+    "Cloud Engineer Intern",
+    "IT Intern",
+    "Python Developer Intern",
+    "Data Engineer Intern",
+    "Platform Engineer Intern",
+    "AWS Intern",
+    "Site Reliability Engineer Intern",
+    "Software Intern",
+    "Technology Intern",
+    "Cloud Intern",
+]
+
+LAST_FIND_FILE = Path(__file__).parent / "last_indeed_find.txt"
+
 SENIOR_KEYWORDS = [
     "senior", "lead", "principal", "staff", "head of", "director",
     "manager", "architect", "vp ", "vice president", "5+ years",
@@ -150,11 +184,17 @@ def update_job_status(job_id, status):
     conn.close()
 
 
-def get_approved_indeed_jobs():
+def get_approved_indeed_jobs(since_dt=None):
     conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute(
-        "SELECT id, title, company, location, url, notes FROM jobs WHERE status='approved' AND source='indeed'"
-    ).fetchall()
+    if since_dt:
+        rows = conn.execute(
+            "SELECT id, title, company, location, url, notes FROM jobs WHERE status='approved' AND source='indeed' AND found_at >= ?",
+            (since_dt,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id, title, company, location, url, notes FROM jobs WHERE status='approved' AND source='indeed'"
+        ).fetchall()
     conn.close()
     return [{"id": r[0], "title": r[1], "company": r[2], "location": r[3], "url": r[4], "notes": r[5] or ""} for r in rows]
 
@@ -186,11 +226,13 @@ def send_job_for_approval(job):
         ]]
     }
     apply_tag = "⚡ Easy Apply" if job.get("easy_apply") else "🌐 External Apply"
+    exp_emoji, exp_label = detect_experience_level(job["title"])
     text = (
-        f"🔍 *Indeed Job Found* — {apply_tag}\n\n"
+        f"🔍 *Indeed Job* — {apply_tag}\n\n"
         f"*{job['title']}*\n"
         f"🏢 {job['company']}\n"
-        f"📍 {job['location']}\n\n"
+        f"📍 {job['location']}\n"
+        f"📊 {exp_emoji} {exp_label}\n\n"
         f"[View on Indeed]({job['url']})"
     )
     send_telegram(text, reply_markup=markup)
@@ -207,10 +249,29 @@ def _is_relevant(title):
     return True
 
 
-async def scrape_indeed_keyword(page, keyword, days=14):
+def detect_experience_level(title):
+    """Detect experience level from job title. Returns (emoji, label) tuple."""
+    t = title.lower()
+    if any(w in t for w in ["intern", "internship", "placement", "work placement"]):
+        return "🎓", "Internship"
+    if any(w in t for w in ["junior", "jr.", "jr ", "graduate", "grad", "entry level",
+                             "entry-level", "fresher", "trainee", "apprentice",
+                             "associate", "early career", "new grad"]):
+        return "🌱", "Fresher / Entry Level"
+    if any(w in t for w in ["senior", "sr.", "sr ", "lead", "principal", "staff",
+                             "manager", "director", "head of", "vp"]):
+        return "⬆️", "Senior"
+    return "💼", "Mid Level"
+
+
+async def scrape_indeed_keyword(page, keyword, days=14, exp_level=None, job_type=None):
     """Scrape Indeed search results for one keyword. Returns list of job dicts."""
-    params = urlencode({"q": keyword, "l": LOCATION, "sort": "date", "fromage": str(days)})
-    url = f"https://ie.indeed.com/jobs?{params}"
+    p = {"q": keyword, "l": LOCATION, "sort": "date", "fromage": str(days)}
+    if exp_level:
+        p["explvl"] = exp_level   # e.g. ENTRY_LEVEL
+    if job_type:
+        p["jt"] = job_type        # e.g. internship
+    url = f"https://ie.indeed.com/jobs?{urlencode(p)}"
 
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
@@ -277,20 +338,22 @@ async def scrape_indeed_keyword(page, keyword, days=14):
     return jobs
 
 
-async def find_jobs():
-    """Search all keywords via Playwright, save new jobs, send to Telegram for approval."""
+async def find_jobs(keywords=None, exp_level=None, job_type=None, label="Jobs"):
+    """Search keywords via Playwright, save new jobs, send to Telegram for approval."""
     init_db()
+    LAST_FIND_FILE.write_text(datetime.now().isoformat())
+    if keywords is None:
+        keywords = JOB_KEYWORDS
     all_new = []
     seen_this_run = set()
 
     async with async_playwright() as p:
-        # Use persistent profile so Indeed sees a real browser fingerprint
         context = await get_indeed_context(p, headless=True)
         page = await context.new_page()
 
-        for kw in JOB_KEYWORDS:
+        for kw in keywords:
             print(f"Searching Indeed: {kw}")
-            jobs = await scrape_indeed_keyword(page, kw)
+            jobs = await scrape_indeed_keyword(page, kw, exp_level=exp_level, job_type=job_type)
             for job in jobs:
                 if job["id"] in seen_this_run:
                     continue
@@ -307,14 +370,31 @@ async def find_jobs():
         await context.close()
 
     if not all_new:
-        send_telegram("🔍 *Indeed Search*: No new jobs found this time.")
-        print("No new Indeed jobs found.")
+        send_telegram(f"🔍 *Indeed {label}*: No new jobs found this time.")
         return
 
-    send_telegram(f"🔍 *Indeed Search*: Found *{len(all_new)} new jobs!* Sending for approval...")
+    send_telegram(f"🔍 *Indeed {label}*: Found *{len(all_new)} new jobs!* Sending for approval...")
     for job in all_new:
         send_job_for_approval(job)
         await asyncio.sleep(0.5)
+
+
+async def find_fresher_jobs():
+    """Find entry-level / fresher jobs on Indeed only."""
+    await find_jobs(
+        keywords=FRESHER_SEARCH_KEYWORDS,
+        exp_level="ENTRY_LEVEL",
+        label="Fresher / Entry Level Jobs"
+    )
+
+
+async def find_internship_jobs():
+    """Find internship jobs on Indeed only."""
+    await find_jobs(
+        keywords=INTERNSHIP_SEARCH_KEYWORDS,
+        job_type="internship",
+        label="Internship Jobs"
+    )
 
     print(f"Done. Found {len(all_new)} new Indeed jobs.")
 
@@ -616,11 +696,17 @@ async def apply_to_indeed_job(page, job):
 
 
 async def apply_approved():
-    """Apply to all Indeed-approved jobs using the persistent Chrome profile."""
+    """Apply to Indeed jobs approved from the most recent /findindeed session."""
     init_db()
-    approved = get_approved_indeed_jobs()
+    since_dt = None
+    if LAST_FIND_FILE.exists():
+        try:
+            since_dt = LAST_FIND_FILE.read_text().strip()
+        except Exception:
+            pass
+    approved = get_approved_indeed_jobs(since_dt=since_dt)
     if not approved:
-        send_telegram("📋 No approved Indeed jobs to apply to. Run /findindeed first, then approve jobs.")
+        send_telegram("📋 No new approved Indeed jobs. Run /findindeed first, then approve jobs.")
         return
 
     async with async_playwright() as p:
@@ -873,6 +959,10 @@ if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "find"
     if cmd == "find":
         asyncio.run(find_jobs())
+    elif cmd == "findfresher":
+        asyncio.run(find_fresher_jobs())
+    elif cmd == "findinternship":
+        asyncio.run(find_internship_jobs())
     elif cmd == "apply":
         asyncio.run(apply_approved())
     elif cmd == "login":

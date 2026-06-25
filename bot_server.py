@@ -519,7 +519,33 @@ def handle_command(text):
                 stdout=log_file, stderr=log_file,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
-            return "🔍 Searching Indeed for jobs in Dublin... results coming shortly!\nTap ✅ Apply or ❌ Skip on each one."
+            return "🔍 Searching Indeed jobs... results coming shortly."
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
+    if cmd == "/findfresher-indeed":
+        try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
+            subprocess.Popen(
+                [python_exe, "-u", str(BASE / "indeed_jobs.py"), "findfresher"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            return "🌱 Searching Indeed for Fresher / Entry Level jobs... results coming shortly."
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
+    if cmd == "/findinternship-indeed":
+        try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
+            subprocess.Popen(
+                [python_exe, "-u", str(BASE / "indeed_jobs.py"), "findinternship"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            return "🎓 Searching Indeed for Internship jobs... results coming shortly."
         except Exception as e:
             return f"⚠️ Error: {e}"
 
@@ -678,11 +704,13 @@ def handle_command(text):
             "/login — LinkedIn login\n"
             "/resetfailed — retry failed\n\n"
             "🔍 *Indeed Jobs*\n"
-            "/findindeed — find Indeed jobs\n"
-            "/applyindeed — apply Indeed jobs\n"
-            "/autoapply\\-indeed — Indeed auto apply\n"
-            "/savedjobs\\-indeed — Indeed saved jobs\n"
-            "/approveall\\-indeed — approve all Indeed\n"
+            "/findindeed — all Indeed jobs\n"
+            "/findfresher\\-indeed — entry level jobs\n"
+            "/findinternship\\-indeed — internship jobs\n"
+            "/applyindeed — apply found jobs\n"
+            "/autoapply\\-indeed — find & apply now\n"
+            "/savedjobs\\-indeed — apply saved jobs\n"
+            "/approveall\\-indeed — approve all\n"
             "/login\\-indeed — Indeed login\n\n"
             "📊 *Tracker*\n"
             "/mystatus — application stats\n"
