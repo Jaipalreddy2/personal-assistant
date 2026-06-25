@@ -97,10 +97,11 @@ LINKEDIN_EMAIL    = config.get("LINKEDIN_EMAIL")
 LINKEDIN_PASSWORD = config.get("LINKEDIN_PASSWORD")
 PHONE_NUMBER      = config.get("PHONE", "+353870042809")
 
-LOCATION     = "Dublin, Ireland"
-DB_PATH      = Path(__file__).parent / "applied_jobs.db"
-SESSION_FILE = Path(__file__).parent / "linkedin_session.json"
-RESUME_PDF   = Path(__file__).parent / "Jaipal_Kasi_Reddy_Resume.pdf"
+LOCATION        = "Dublin, Ireland"
+DB_PATH         = Path(__file__).parent / "applied_jobs.db"
+SESSION_FILE    = Path(__file__).parent / "linkedin_session.json"
+RESUME_PDF      = Path(__file__).parent / "Jaipal_Kasi_Reddy_Resume.pdf"
+LAST_FIND_FILE  = Path(__file__).parent / "last_linkedin_find.txt"
 
 
 # ── Database ──────────────────────────────────────────────────────────────────
@@ -170,11 +171,17 @@ def update_job_status(job_id, status):
     conn.close()
 
 
-def get_pending_jobs():
+def get_pending_jobs(since_dt=None):
     conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute(
-        "SELECT id, title, company, location, url FROM jobs WHERE status='approved'"
-    ).fetchall()
+    if since_dt:
+        rows = conn.execute(
+            "SELECT id, title, company, location, url FROM jobs WHERE status='approved' AND found_at >= ?",
+            (since_dt,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id, title, company, location, url FROM jobs WHERE status='approved'"
+        ).fetchall()
     conn.close()
     return [{"id": r[0], "title": r[1], "company": r[2], "location": r[3], "url": r[4]} for r in rows]
 
@@ -728,6 +735,7 @@ async def find_and_connect_recruiter(page, job):
 async def find_jobs():
     """Find new relevant Easy Apply jobs and list them in Telegram. Does NOT apply."""
     init_db()
+    LAST_FIND_FILE.write_text(datetime.now().isoformat())
     new_jobs = 0
     found_jobs = []
 
@@ -1050,14 +1058,17 @@ async def do_login():
 
 
 async def login_then_apply():
-    """
-    Apply using the persistent Chrome profile — headless, no popup window.
-    If session is expired, opens a visible browser for re-login first.
-    """
+    """Apply to jobs found in the most recent /findjobs session only."""
     init_db()
-    approved = get_pending_jobs()
+    since_dt = None
+    if LAST_FIND_FILE.exists():
+        try:
+            since_dt = LAST_FIND_FILE.read_text().strip()
+        except Exception:
+            pass
+    approved = get_pending_jobs(since_dt=since_dt)
     if not approved:
-        send_telegram("📋 No approved jobs to apply to. Run /findjobs first.")
+        send_telegram("📋 No new approved jobs to apply to. Run /findjobs first.")
         return
 
     async with async_playwright() as p:
