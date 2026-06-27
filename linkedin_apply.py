@@ -598,9 +598,12 @@ async def apply_to_job(page, job):
             pass
 
         # ── Find Easy Apply element (button or <a> tag) ─────────────────────
-        # LinkedIn uses <a aria-label="Easy Apply to this job"> in some layouts
+        # LinkedIn renders Easy Apply as <a> or <button> depending on layout.
+        # Wait up to 8s for it to appear (LinkedIn lazy-loads the apply button).
         apply_el = None
         apply_href = None
+
+        # Strategy 1: wait_for_selector across both a and button variants
         for sel in [
             "a[aria-label='Easy Apply to this job']",
             "a[aria-label*='Easy Apply']",
@@ -608,15 +611,30 @@ async def apply_to_job(page, job):
             "button[aria-label*='Easy Apply']",
             "button.jobs-apply-button",
         ]:
-            apply_el = await page.query_selector(sel)
-            if apply_el:
-                tag = await apply_el.evaluate("el => el.tagName")
-                if tag == "A":
-                    apply_href = await apply_el.get_attribute("href")
-                break
+            try:
+                apply_el = await page.wait_for_selector(sel, timeout=3000)
+                if apply_el:
+                    tag = await apply_el.evaluate("el => el.tagName")
+                    if tag == "A":
+                        apply_href = await apply_el.get_attribute("href")
+                    break
+            except Exception:
+                continue
 
+        # Strategy 2: Playwright text locator across all clickable elements
         if not apply_el:
-            # Fallback: search all buttons and links for Easy Apply text
+            try:
+                loc = page.locator("a, button, [role='button']").filter(has_text="Easy Apply")
+                if await loc.count() > 0:
+                    apply_el = loc.first
+                    tag = await apply_el.evaluate("el => el.tagName")
+                    if tag == "A":
+                        apply_href = await apply_el.get_attribute("href")
+            except Exception:
+                pass
+
+        # Strategy 3: JS search across all elements including aria-label
+        if not apply_el and not apply_href:
             result = await page.evaluate("""() => {
                 const els = [...document.querySelectorAll('button, a, [role="button"]')];
                 for (const el of els) {
@@ -655,7 +673,7 @@ async def apply_to_job(page, job):
 
         print(f"  Easy Apply found: {job['title']} @ {job['company']}")
 
-        # If it's a link with an apply URL, navigate directly (faster and more reliable)
+        # Navigate directly via href if available (more reliable than clicking)
         if apply_href and "linkedin.com" in apply_href:
             await page.goto(apply_href, wait_until="domcontentloaded", timeout=30000)
         elif apply_el:

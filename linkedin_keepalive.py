@@ -83,10 +83,10 @@ async def ping_indeed():
 async def keepalive_loop():
     print(f"[{ts()}] Keepalive started — pinging LinkedIn & Indeed every 30 min.")
     while True:
-        await asyncio.sleep(INTERVAL)
         await ping_linkedin()
         await asyncio.sleep(5)
         await ping_indeed()
+        await asyncio.sleep(INTERVAL)
 
 
 if __name__ == "__main__":
