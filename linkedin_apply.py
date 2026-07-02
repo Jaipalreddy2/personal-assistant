@@ -1159,6 +1159,7 @@ async def apply_approved(from_find=False):
                 msg = f"⚠️ Could not apply: *{job['title']}* at {job['company']}"
                 if reason:
                     msg += f"\n  Reason: {reason}"
+                msg += f"\n[Apply manually]({job['url']})"
                 send_telegram(msg)
 
             await asyncio.sleep(random.randint(10, 20))
@@ -1243,6 +1244,7 @@ async def auto_apply():
                 msg = f"⚠️ Could not apply: *{job['title']}* at {job['company']}"
                 if reason:
                     msg += f"\n  Reason: {reason}"
+                msg += f"\n[Apply manually]({job['url']})"
                 send_telegram(msg)
 
             await asyncio.sleep(random.randint(10, 20))
@@ -1353,6 +1355,7 @@ async def apply_saved_jobs():
                 if reason and "No Easy Apply" not in reason:
                     msg = f"⚠️ Could not apply: *{job['title']}*" + (f" at {job['company']}" if job['company'] else "")
                     msg += f"\n  Reason: {reason}"
+                    msg += f"\n[Apply manually]({job['url']})"
                     send_telegram(msg)
                 # Not Easy Apply — send link for manual application
                 update_job_status(job["id"], "pending")
@@ -1440,6 +1443,7 @@ async def login_then_apply():
                 msg = f"⚠️ Could not apply: *{job['title']}* at {job['company']}"
                 if reason:
                     msg += f"\n  Reason: {reason}"
+                msg += f"\n[Apply manually]({job['url']})"
                 send_telegram(msg)
 
             await asyncio.sleep(random.randint(8, 15))
