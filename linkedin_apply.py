@@ -519,22 +519,43 @@ async def dismiss_cookie_banner(page):
         pass
 
 
-async def _upload_resume_if_needed(page):
-    """If the Easy Apply modal has a file-upload input, attach the PDF resume."""
+async def _upload_resume_if_needed(page) -> bool:
+    """Attach the PDF resume to a visible, empty file input in the Easy Apply modal.
+    Returns True if the file was uploaded this call, False otherwise."""
     if not RESUME_PDF.exists():
-        return
+        return False
     try:
-        file_inputs = await page.query_selector_all("input[type='file']")
+        modal = await page.query_selector(
+            ".jobs-easy-apply-modal, [data-test-modal], .artdeco-modal"
+        )
+        scope = modal or page
+        file_inputs = await scope.query_selector_all("input[type='file']")
         for fi in file_inputs:
             try:
+                # Skip inputs that are hidden (styling trick) but whose upload
+                # container is not visible — the resume step is not active.
+                container = await fi.evaluate_handle(
+                    "el => el.closest('.jobs-document-upload-redesign-card__container,"
+                    " .jobs-resume-picker, [class*=\"resume\"], [class*=\"document\"]') || el.parentElement"
+                )
+                visible = await page.evaluate("el => el ? el.offsetParent !== null : false", container)
+                if not visible:
+                    continue
+                # Skip if a file is already attached
+                has_file = await page.evaluate(
+                    "el => el.files && el.files.length > 0", fi
+                )
+                if has_file:
+                    return False
                 await fi.set_input_files(str(RESUME_PDF))
                 await page.wait_for_timeout(800)
                 print(f"  Uploaded resume: {RESUME_PDF.name}")
-                return
+                return True
             except Exception:
                 continue
     except Exception:
         pass
+    return False
 
 
 async def _fill_required_fields(page):
@@ -675,7 +696,7 @@ async def apply_to_job(page, job):
 
         if not nav_ok:
             print(f"  Nav failed: {job['title']}")
-            return False, "Could not load job page (navigation timeout)"
+            return False, "SKIP: no Easy Apply button — job is external or closed"
 
         await page.wait_for_timeout(1000 + random.randint(300, 800))
         await dismiss_cookie_banner(page)
@@ -793,6 +814,8 @@ async def apply_to_job(page, job):
         review_count     = 0
         disabled_count   = 0
         no_button_count  = 0
+        last_step_label  = None
+        same_step_streak = 0
 
         for step in range(35):
             await dismiss_cookie_banner(page)
@@ -800,6 +823,26 @@ async def apply_to_job(page, job):
             await _upload_resume_if_needed(page)
             await _fill_required_fields(page)
             await page.wait_for_timeout(400)
+
+            # Detect if LinkedIn's step counter hasn't advanced (stuck on same page)
+            step_label = await page.evaluate("""() => {
+                const modal = document.querySelector('.jobs-easy-apply-modal, [data-test-modal], .artdeco-modal');
+                if (!modal) return null;
+                const el = modal.querySelector(
+                    '.artdeco-completeness-meter-linear__value, '
+                    '[class*="progress-bar"] span, '
+                    'h3[class*="t-bold"], '
+                    '.jobs-easy-apply-modal__title'
+                );
+                return el ? el.innerText.trim() : null;
+            }""")
+            if step_label and step_label == last_step_label:
+                same_step_streak += 1
+                if same_step_streak >= 4:
+                    return False, f"Stuck on step '{step_label}' — required field could not be filled"
+            else:
+                same_step_streak = 0
+            last_step_label = step_label
 
             if review_count >= 2:
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
@@ -1087,7 +1130,7 @@ async def apply_approved(from_find=False):
             # 2. Apply
             try:
                 success, reason = await apply_to_job(page, job)
-                status = "applied" if success else "failed"
+                status = "applied" if success else ("skipped" if reason.startswith("SKIP:") else "failed")
             except Exception as e:
                 reason = str(e)
                 status = "failed"
@@ -1176,7 +1219,7 @@ async def auto_apply():
         for job in new_jobs:
             try:
                 success, reason = await apply_to_job(page, job)
-                status = "applied" if success else "failed"
+                status = "applied" if success else ("skipped" if reason.startswith("SKIP:") else "failed")
             except Exception as e:
                 reason = str(e)
                 status = "failed"
@@ -1377,7 +1420,7 @@ async def login_then_apply():
 
             try:
                 success, reason = await apply_to_job(page, job)
-                status = "applied" if success else "failed"
+                status = "applied" if success else ("skipped" if reason.startswith("SKIP:") else "failed")
             except Exception as e:
                 reason = str(e)
                 status = "failed"
@@ -1393,7 +1436,7 @@ async def login_then_apply():
                         send_telegram(f"🤝 Connection request sent to recruiter at *{job['company']}*")
                 except Exception:
                     pass
-            else:
+            elif not reason.startswith("SKIP:"):
                 msg = f"⚠️ Could not apply: *{job['title']}* at {job['company']}"
                 if reason:
                     msg += f"\n  Reason: {reason}"
