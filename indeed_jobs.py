@@ -82,6 +82,23 @@ INTERNSHIP_SEARCH_KEYWORDS = [
     "Cloud Intern",
 ]
 
+GRADUATE_SEARCH_KEYWORDS = [
+    "Graduate Programme",
+    "Graduate Scheme",
+    "Graduate Software Engineer",
+    "Graduate DevOps Engineer",
+    "Graduate Cloud Engineer",
+    "Graduate Engineer",
+    "Graduate Developer",
+    "Graduate IT Engineer",
+    "Graduate Cloud Computing",
+    "Technology Graduate Programme",
+    "Software Graduate",
+    "Graduate Trainee Engineer",
+    "New Graduate Engineer",
+    "Graduate Platform Engineer",
+]
+
 LAST_FIND_FILE = Path(__file__).parent / "last_indeed_find.txt"
 
 SENIOR_KEYWORDS = [
@@ -403,7 +420,14 @@ async def find_internship_jobs():
         label="Internship Jobs"
     )
 
-    print(f"Done. Found {len(all_new)} new Indeed jobs.")
+
+async def find_graduate_jobs():
+    """Find graduate programme and graduate engineer jobs on Indeed."""
+    await find_jobs(
+        keywords=GRADUATE_SEARCH_KEYWORDS,
+        exp_level="ENTRY_LEVEL",
+        label="Graduate Jobs"
+    )
 
 
 # ── Indeed Browser (persistent Chrome profile) ─────────────────────────────────
@@ -422,17 +446,21 @@ async def get_indeed_context(playwright, headless=True):
 
 async def is_logged_in_indeed(page):
     try:
-        await page.goto("https://ie.indeed.com/", wait_until="domcontentloaded", timeout=20000)
+        # Navigate to My Jobs — redirects to login if not authenticated
+        await page.goto("https://ie.indeed.com/myjobs", wait_until="domcontentloaded", timeout=20000)
         await page.wait_for_timeout(2000)
-        # "Sign in" link present = not logged in
+        url = page.url
+        # If we stayed on myjobs (or resume/profile) we're logged in
+        if "myjobs" in url or "resume" in url or "profile" in url:
+            return True
+        # If redirected to login/account page, not logged in
+        if "account/login" in url or "login" in url:
+            return False
+        # Fallback: check for sign-in button on page
         sign_in = await page.query_selector(
-            "a[href*='account/login'], a[data-tn-element*='signin'], button[data-tn-component*='signin']"
+            "a[href*='account/login'], button[data-tn-component*='signin'], [data-testid='login-link']"
         )
-        # If we can see the user nav or profile, we're in
-        logged_in_el = await page.query_selector(
-            "a[href*='myjobs'], a[href*='profile'], div[data-tn-component*='account']"
-        )
-        return sign_in is None or logged_in_el is not None
+        return sign_in is None
     except Exception:
         return False
 
@@ -979,6 +1007,8 @@ if __name__ == "__main__":
         asyncio.run(find_fresher_jobs())
     elif cmd == "findinternship":
         asyncio.run(find_internship_jobs())
+    elif cmd == "findgraduate":
+        asyncio.run(find_graduate_jobs())
     elif cmd == "apply":
         asyncio.run(apply_approved())
     elif cmd == "login":

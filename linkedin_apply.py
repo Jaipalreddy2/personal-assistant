@@ -85,6 +85,23 @@ INTERNSHIP_SEARCH_KEYWORDS = [
     "Cloud Intern",
 ]
 
+GRADUATE_SEARCH_KEYWORDS = [
+    "Graduate Programme",
+    "Graduate Scheme",
+    "Graduate Software Engineer",
+    "Graduate DevOps Engineer",
+    "Graduate Cloud Engineer",
+    "Graduate Engineer",
+    "Graduate Developer",
+    "Graduate IT Engineer",
+    "Graduate Cloud Computing",
+    "Technology Graduate Programme",
+    "Software Graduate",
+    "Graduate Trainee Engineer",
+    "New Graduate Engineer",
+    "Graduate Platform Engineer",
+]
+
 # Keywords that indicate a role is suitable for freshers/graduates
 FRESHER_KEYWORDS = [
     "junior", "graduate", "entry level", "entry-level", "fresher",
@@ -135,6 +152,11 @@ def detect_experience_level(title):
     return "💼", "Mid Level"
 
 LINKEDIN_EMAIL    = config.get("LINKEDIN_EMAIL")
+
+APPLICANT = {
+    "email":   config.get("GMAIL_ADDRESS", "kasireddyjaipal02@gmail.com"),
+    "phone":   config.get("PHONE", "+353870042809"),
+}
 LINKEDIN_PASSWORD = config.get("LINKEDIN_PASSWORD")
 PHONE_NUMBER      = config.get("PHONE", "+353870042809")
 
@@ -516,44 +538,104 @@ async def _upload_resume_if_needed(page):
 
 
 async def _fill_required_fields(page):
-    """Auto-fill any required fields in the Easy Apply modal that are empty."""
+    """Fill Easy Apply form fields using React-compatible native setters."""
+    phone = PHONE_NUMBER
+    email = APPLICANT["email"]
     try:
-        await page.evaluate(f"""async () => {{
-            const phone = "{PHONE_NUMBER}";
-            // Fill empty phone inputs
-            for (const inp of document.querySelectorAll('input[type="tel"], input[id*="phone"], input[name*="phone"]')) {{
-                if (!inp.value) inp.value = phone;
-            }}
-            // Answer "Yes" to work authorisation / sponsorship radio groups
-            for (const radio of document.querySelectorAll('input[type="radio"]')) {{
-                const lbl = (radio.getAttribute('aria-label') || '').toLowerCase();
-                const parentText = (radio.closest('fieldset')?.innerText || '').toLowerCase();
-                if ((lbl.includes('yes') || lbl.includes('authorized') || lbl.includes('eligible'))
-                    && !radio.checked) {{
-                    radio.click();
+        await page.evaluate(f"""() => {{
+            const phone = "{phone}";
+            const email = "{email}";
+            const modal = document.querySelector('.jobs-easy-apply-modal')
+                       || document.querySelector('[data-test-modal]')
+                       || document.body;
+
+            function lbl(el) {{
+                let t = '';
+                if (el.id) {{
+                    const l = document.querySelector('label[for="' + el.id + '"]');
+                    if (l) t += ' ' + l.innerText;
                 }}
-                // Select "No" for sponsorship needed
-                if ((parentText.includes('sponsor') && (lbl.includes('no') || lbl === 'no'))
-                    && !radio.checked) {{
-                    radio.click();
+                t += ' ' + (el.getAttribute('aria-label') || '');
+                t += ' ' + (el.placeholder || '');
+                const container = el.closest('fieldset,.fb-form-element,.jobs-easy-apply-form-element,.artdeco-text-input');
+                if (container) t += ' ' + (container.querySelector('legend,label,h3,h4,span')?.innerText || '');
+                return t.toLowerCase();
+            }}
+
+            function react_set(el, val) {{
+                const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+                const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                if (setter) setter.call(el, val);
+                el.dispatchEvent(new Event('input',  {{bubbles:true}}));
+                el.dispatchEvent(new Event('change', {{bubbles:true}}));
+                el.dispatchEvent(new Event('blur',   {{bubbles:true}}));
+            }}
+
+            // ── Text / tel / number inputs ──────────────────────────────────
+            for (const inp of modal.querySelectorAll(
+                'input[type="text"],input[type="tel"],input[type="number"],input[type="email"],input:not([type])'
+            )) {{
+                if (inp.offsetParent === null) continue;
+                if (inp.value?.trim()) continue;
+                const l = lbl(inp);
+                if      (l.includes('phone') || l.includes('mobile') || l.includes('tel'))
+                    react_set(inp, phone);
+                else if (l.includes('email'))
+                    react_set(inp, email);
+                else if (l.includes('city') || l.includes('location') || l.includes('address'))
+                    react_set(inp, 'Dublin');
+                else if (l.includes('first') && l.includes('name'))
+                    react_set(inp, 'Jaipal');
+                else if (l.includes('last') && l.includes('name'))
+                    react_set(inp, 'Kasi Reddy');
+                else if ((l.includes('full') && l.includes('name')) || l.includes('your name'))
+                    react_set(inp, 'Jaipal Kasi Reddy');
+                else if (l.includes('linkedin') || l.includes('profile url'))
+                    react_set(inp, 'https://www.linkedin.com/in/jaipal-kasireddy-375a5227b');
+                else if (l.includes('github') || l.includes('portfolio') || l.includes('website'))
+                    react_set(inp, 'https://github.com/Jaipalreddy2');
+                else if (l.includes('year') || l.includes('experience'))
+                    react_set(inp, '3');
+                else if (l.includes('salary') || l.includes('rate') || l.includes('ctc'))
+                    react_set(inp, '45000');
+                else if (l.includes('notice') || l.includes('start date'))
+                    react_set(inp, '2 weeks');
+            }}
+
+            // ── Native selects ──────────────────────────────────────────────
+            for (const sel of modal.querySelectorAll('select')) {{
+                if (sel.offsetParent === null) continue;
+                if (sel.value && sel.selectedIndex > 0) continue;
+                for (const opt of sel.options) {{
+                    if (opt.value && opt.value !== '' && !opt.disabled) {{
+                        sel.value = opt.value;
+                        sel.dispatchEvent(new Event('change', {{bubbles:true}}));
+                        break;
+                    }}
                 }}
             }}
-            // Fill required empty text inputs with sensible defaults
-            for (const inp of document.querySelectorAll('input[required], input[aria-required="true"]')) {{
-                if (!inp.value && inp.type === 'text') {{
-                    const lbl = (inp.getAttribute('aria-label') || inp.getAttribute('placeholder') || '').toLowerCase();
-                    if (lbl.includes('year') || lbl.includes('experience')) inp.value = '1';
-                    else if (lbl.includes('salary') || lbl.includes('rate')) inp.value = '40000';
-                    else if (lbl.includes('city') || lbl.includes('location')) inp.value = 'Dublin';
-                    else if (lbl.includes('linkedin') || lbl.includes('profile')) inp.value = 'https://www.linkedin.com/in/jaipal-kasi-reddy';
-                    else if (lbl.includes('github') || lbl.includes('portfolio') || lbl.includes('website')) inp.value = 'https://github.com/Jaipalreddy2';
-                }}
+
+            // ── Radio buttons ───────────────────────────────────────────────
+            for (const radio of modal.querySelectorAll('input[type="radio"]')) {{
+                if (radio.offsetParent === null || radio.checked) continue;
+                const l   = lbl(radio).toLowerCase();
+                const grp = (radio.closest('fieldset,.fb-form-element')?.innerText || '').toLowerCase();
+                const val = (radio.value || '').toLowerCase();
+                const isYes = val === 'yes' || l.trim().endsWith(' yes') || l.trim() === 'yes';
+                const isNo  = val === 'no'  || l.trim().endsWith(' no')  || l.trim() === 'no';
+                const wantYes = grp.includes('authoriz') || grp.includes('right to work')
+                             || grp.includes('eligible') || grp.includes('legally') || grp.includes('currently');
+                const wantNo  = grp.includes('sponsor') || grp.includes('require visa') || grp.includes('need visa');
+                if (wantYes && isYes) radio.click();
+                if (wantNo  && isNo)  radio.click();
             }}
-            // Select first option in empty required dropdowns
-            for (const sel of document.querySelectorAll('select[required], select[aria-required="true"]')) {{
-                if (!sel.value && sel.options.length > 1) sel.selectedIndex = 1;
+
+            // ── Textareas ───────────────────────────────────────────────────
+            for (const ta of modal.querySelectorAll('textarea')) {{
+                if (ta.offsetParent === null || ta.value?.trim()) continue;
+                react_set(ta, 'I am excited about this opportunity. My background in DevOps/Cloud Engineering with AWS, Kubernetes, Terraform, Docker, and CI/CD pipelines aligns well with this role. Happy to discuss further.');
             }}
-        }};""")
+        }}""")
     except Exception as e:
         print(f"  Field fill error: {e}")
 
@@ -578,15 +660,26 @@ async def apply_to_job(page, job):
                     print(f"  Nav error: {nav_err}")
                     await page.wait_for_timeout(8000)
             if nav_ok:
-                break
+                # Wait for the job-specific apply button to appear in the detail panel
+                # (the panel loads async after domcontentloaded)
+                try:
+                    await page.wait_for_selector(
+                        "button[aria-label*='Easy Apply to'], a[aria-label*='Easy Apply to'], button.jobs-apply-button",
+                        timeout=8000
+                    )
+                    break  # job detail panel loaded with apply button
+                except Exception:
+                    # Button didn't appear — try next URL
+                    nav_ok = False
+                    continue
 
         if not nav_ok:
             print(f"  Nav failed: {job['title']}")
             return False, "Could not load job page (navigation timeout)"
 
-        await page.wait_for_timeout(2000 + random.randint(500, 1500))
+        await page.wait_for_timeout(1000 + random.randint(300, 800))
         await dismiss_cookie_banner(page)
-        await page.wait_for_timeout(500)
+        await page.wait_for_timeout(300)
 
         # Dismiss any "unfinished application" dialog first
         try:
@@ -598,55 +691,44 @@ async def apply_to_job(page, job):
             pass
 
         # ── Find Easy Apply element (button or <a> tag) ─────────────────────
-        # LinkedIn renders Easy Apply as <a> or <button> depending on layout.
-        # Wait up to 8s for it to appear (LinkedIn lazy-loads the apply button).
+        # IMPORTANT: skip the "Easy Apply filter" sidebar button — only match
+        # the job-specific button whose aria-label says "Easy Apply to <job title>"
         apply_el = None
         apply_href = None
 
-        # Strategy 1: wait_for_selector across both a and button variants
-        for sel in [
-            "a[aria-label='Easy Apply to this job']",
-            "a[aria-label*='Easy Apply']",
-            "button[aria-label='Easy Apply to this job']",
-            "button[aria-label*='Easy Apply']",
-            "button.jobs-apply-button",
-        ]:
-            try:
-                apply_el = await page.wait_for_selector(sel, timeout=3000)
-                if apply_el:
-                    tag = await apply_el.evaluate("el => el.tagName")
-                    if tag == "A":
-                        apply_href = await apply_el.get_attribute("href")
-                    break
-            except Exception:
-                continue
+        # Use JS to find the correct button — prefer aria-label with "Easy Apply to"
+        result = await page.evaluate("""() => {
+            const els = [...document.querySelectorAll('button, a, [role="button"]')];
+            // First pass: exact "Easy Apply to <job>" buttons
+            for (const el of els) {
+                const a = (el.getAttribute('aria-label') || '').toLowerCase();
+                if (a.startsWith('easy apply to ') || a === 'easy apply to this job')
+                    return { tag: el.tagName, href: el.getAttribute('href') || '', ariaLabel: a };
+            }
+            // Second pass: jobs-apply-button class (LinkedIn's apply button)
+            for (const el of els) {
+                if (el.classList.contains('jobs-apply-button'))
+                    return { tag: el.tagName, href: el.getAttribute('href') || '', ariaLabel: el.getAttribute('aria-label') || '' };
+            }
+            // Third pass: "Easy Apply" text but NOT the filter button
+            for (const el of els) {
+                const t = (el.innerText || el.textContent || '').trim();
+                const a = (el.getAttribute('aria-label') || '').toLowerCase();
+                if ((t === 'Easy Apply' || a.includes('easy apply')) && !a.includes('filter'))
+                    return { tag: el.tagName, href: el.getAttribute('href') || '', ariaLabel: a };
+            }
+            return null;
+        }""")
 
-        # Strategy 2: Playwright text locator across all clickable elements
-        if not apply_el:
-            try:
-                loc = page.locator("a, button, [role='button']").filter(has_text="Easy Apply")
-                if await loc.count() > 0:
-                    apply_el = loc.first
-                    tag = await apply_el.evaluate("el => el.tagName")
-                    if tag == "A":
-                        apply_href = await apply_el.get_attribute("href")
-            except Exception:
-                pass
-
-        # Strategy 3: JS search across all elements including aria-label
-        if not apply_el and not apply_href:
-            result = await page.evaluate("""() => {
-                const els = [...document.querySelectorAll('button, a, [role="button"]')];
-                for (const el of els) {
-                    const t = (el.innerText || el.textContent || '').trim();
-                    const a = el.getAttribute('aria-label') || '';
-                    if (t === 'Easy Apply' || a.toLowerCase().includes('easy apply'))
-                        return { tag: el.tagName, href: el.getAttribute('href') || '' };
-                }
-                return null;
-            }""")
-            if result:
-                apply_href = result.get("href") or None
+        if result:
+            apply_href = result.get("href") or None
+            if not apply_href:
+                # Need element reference to click — find it by aria-label
+                aria = result.get("ariaLabel", "")
+                if aria:
+                    apply_el = await page.query_selector(f"[aria-label='{aria}']")
+                if not apply_el:
+                    apply_el = await page.query_selector("button.jobs-apply-button")
 
         if not apply_el and not apply_href:
             # No Easy Apply — try external apply link
@@ -691,39 +773,70 @@ async def apply_to_job(page, job):
                 print(f"  External apply error: {e}")
                 return False, f"External ATS error: {e}"
 
-        # ── Walk through Easy Apply steps ──────────────────────────────────
+        # ── Wait for Easy Apply modal to appear ────────────────────────────
+        modal_sel = ".jobs-easy-apply-modal, [data-test-modal], .artdeco-modal"
+        try:
+            await page.wait_for_selector(modal_sel, timeout=8000)
+        except Exception:
+            # Modal didn't open — check if we're on an external page
+            if "linkedin.com" not in page.url:
+                try:
+                    from external_apply import apply_external
+                    result = await apply_external(page, page.url, job)
+                    return result, ("" if result else "External ATS apply failed")
+                except Exception as e:
+                    return False, f"External ATS error: {e}"
+            return False, "Easy Apply modal did not open"
+
         await _upload_resume_if_needed(page)
 
-        review_count = 0
-        stuck_count  = 0
+        review_count     = 0
+        disabled_count   = 0
+        no_button_count  = 0
+
         for step in range(35):
             await dismiss_cookie_banner(page)
             await page.wait_for_timeout(1200)
             await _upload_resume_if_needed(page)
             await _fill_required_fields(page)
+            await page.wait_for_timeout(400)
 
             if review_count >= 2:
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await page.wait_for_timeout(400)
+                await page.wait_for_timeout(300)
 
             clicked = await page.evaluate("""() => {
-                const buttons = Array.from(document.querySelectorAll('button'));
+                // Scope to modal only — never click background page buttons
+                const modal = document.querySelector('.jobs-easy-apply-modal, [data-test-modal], .artdeco-modal');
+                if (!modal) return 'no_modal';
+                const buttons = Array.from(modal.querySelectorAll('button'));
                 const find = (...labels) => buttons.find(b => {
                     const t = (b.innerText || '').trim();
                     const a = b.getAttribute('aria-label') || '';
                     return labels.some(l => t === l || a.includes(l));
                 });
+
                 const submit = find('Submit application', 'Submit Application');
-                if (submit) { submit.click(); return 'submit'; }
+                if (submit && !submit.disabled) { submit.click(); return 'submit'; }
+
                 const done = find('Done');
-                if (done) { done.click(); return 'done'; }
+                if (done && !done.disabled) { done.click(); return 'done'; }
+
                 const review = find('Review', 'Review your application');
-                if (review) { review.click(); return 'review'; }
+                if (review && !review.disabled) { review.click(); return 'review'; }
+
                 const next = find('Next', 'Continue to next step', 'Continue');
-                if (next) { next.click(); return 'next'; }
-                // Dismiss "Follow company" or success modals
+                if (next) {
+                    if (next.disabled || next.getAttribute('aria-disabled') === 'true') {
+                        return 'next_disabled';
+                    }
+                    next.click();
+                    return 'next';
+                }
+
                 const dismiss = find('Dismiss', 'Not now', 'Skip');
                 if (dismiss) { dismiss.click(); return 'dismiss'; }
+
                 return null;
             }""")
 
@@ -731,20 +844,66 @@ async def apply_to_job(page, job):
 
             if clicked == 'review':
                 review_count += 1
+                disabled_count = 0
+
             elif clicked == 'submit':
                 await page.wait_for_timeout(2000)
-                print(f"  ✅ Applied: {job['title']} @ {job['company']}")
+                print(f"  Applied: {job['title']} @ {job['company']}")
                 return True, ""
+
             elif clicked == 'done':
-                print(f"  ✅ Applied: {job['title']} @ {job['company']}")
+                print(f"  Applied: {job['title']} @ {job['company']}")
                 return True, ""
+
+            elif clicked == 'next_disabled':
+                # Next is disabled — a required field isn't filled yet
+                disabled_count += 1
+                if disabled_count >= 3:
+                    # Find which required fields are still empty
+                    unfilled = await page.evaluate("""() => {
+                        const modal = document.querySelector('.jobs-easy-apply-modal') || document.body;
+                        const fields = [];
+                        for (const el of modal.querySelectorAll(
+                            '[aria-required="true"],[required],input,select,textarea'
+                        )) {
+                            if (el.offsetParent === null) continue;
+                            const val = el.value || '';
+                            if (val.trim()) continue;
+                            // Only flag visible empty fields
+                            const id = el.id || '';
+                            let label = '';
+                            if (id) {
+                                const l = document.querySelector('label[for="' + id + '"]');
+                                if (l) label = l.innerText.trim();
+                            }
+                            label = label || el.getAttribute('aria-label') || el.placeholder || el.tagName;
+                            fields.push(label.slice(0, 40));
+                        }
+                        return [...new Set(fields)].slice(0, 5);
+                    }""")
+                    reason = "Required field(s) could not be auto-filled: " + (", ".join(unfilled) if unfilled else "unknown")
+                    print(f"  Stuck (Next disabled): {reason}")
+                    return False, reason
+                await page.wait_for_timeout(1500)
+
             elif clicked is None:
-                stuck_count += 1
-                if stuck_count >= 2:
-                    btns = await page.evaluate("() => Array.from(document.querySelectorAll('button')).map(b => (b.innerText||b.getAttribute('aria-label')||'').trim()).filter(t=>t).slice(0,8)")
-                    print(f"  Stuck at step {step}. Buttons: {btns}")
-                    return False, f"Form stuck — buttons visible: {', '.join(btns) if btns else 'none'}"
+                no_button_count += 1
+                if no_button_count >= 2:
+                    btns = await page.evaluate(
+                        "() => Array.from(document.querySelectorAll('button'))"
+                        ".map(b=>(b.innerText||b.getAttribute('aria-label')||'').trim())"
+                        ".filter(t=>t).slice(0,8)"
+                    )
+                    return False, f"No actionable button found. Visible: {', '.join(btns) if btns else 'none'}"
                 await page.wait_for_timeout(2000)
+
+            elif clicked == 'no_modal':
+                return False, "Easy Apply modal closed unexpectedly"
+
+            else:
+                # next / dismiss / etc. — reset stuck counters
+                disabled_count  = 0
+                no_button_count = 0
 
         return False, "Form did not reach submit after all steps"
 
@@ -880,6 +1039,15 @@ async def find_internship_jobs():
         keywords=INTERNSHIP_SEARCH_KEYWORDS,
         job_type_filter="I",  # Internship job type
         label="Internship Jobs"
+    )
+
+
+async def find_graduate_jobs():
+    """Find graduate programme and graduate engineer jobs on LinkedIn."""
+    await find_jobs(
+        keywords=GRADUATE_SEARCH_KEYWORDS,
+        exp_filter="2",  # Entry level
+        label="Graduate Jobs"
     )
 
 
@@ -1247,6 +1415,8 @@ if __name__ == "__main__":
         asyncio.run(find_fresher_jobs())
     elif cmd == "findinternship":
         asyncio.run(find_internship_jobs())
+    elif cmd == "findgraduate":
+        asyncio.run(find_graduate_jobs())
     elif cmd == "apply":
         asyncio.run(apply_approved())
     elif cmd == "loginapply":

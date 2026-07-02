@@ -510,6 +510,24 @@ def handle_command(text):
         except Exception as e:
             return f"⚠️ Error: {e}"
 
+    if cmd == "/findgraduate":
+        try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
+            subprocess.Popen(
+                [python_exe, "-u", str(BASE / "linkedin_apply.py"), "findgraduate"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            subprocess.Popen(
+                [python_exe, "-u", str(BASE / "indeed_jobs.py"), "findgraduate"],
+                stdout=log_file, stderr=log_file,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            return "🎓 Searching LinkedIn + Indeed for Graduate jobs simultaneously... results coming shortly."
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
     if cmd == "/findindeed":
         try:
             python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
@@ -696,6 +714,8 @@ def handle_command(text):
 
     if cmd == "/help":
         return (
+            "🎓 *Graduate*\n"
+            "/findgraduate — graduate jobs on LinkedIn + Indeed\n\n"
             "💼 *LinkedIn*\n"
             "/findjobs — all jobs\n"
             "/findfresher — entry level\n"
@@ -829,8 +849,13 @@ def run():
     # Start keepalive daemon — pings LinkedIn & Indeed every 30 min
     start_linkedin_keepalive()
 
-    # Show new emails since last check
-    startup_emails()
+    # Start email monitor — startup summary + live new-email notifications
+    try:
+        from email_monitor import start_in_background as start_email_monitor
+        start_email_monitor()
+    except Exception as _em_err:
+        print(f"Email monitor start error: {_em_err}")
+        startup_emails()  # fallback to old one-shot check
 
     offset = None
     while True:
