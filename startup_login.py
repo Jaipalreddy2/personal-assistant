@@ -39,17 +39,23 @@ async def ensure_linkedin():
 
 
 async def ensure_indeed():
-    from indeed_jobs import ensure_indeed_session
+    from indeed_jobs import get_indeed_context, is_logged_in_indeed
     print("Checking Indeed session...")
-    async with async_playwright() as p:
-        context, page = await ensure_indeed_session(p, send_telegram)
-        if context is not None:
-            print("Indeed: session active")
+    try:
+        async with async_playwright() as p:
+            context = await get_indeed_context(p, headless=True)
+            page = await context.new_page()
+            ok = await is_logged_in_indeed(page)
+            await page.close()
             await context.close()
-            return True
-        else:
-            print("Indeed: login failed")
-            return False
+            if ok:
+                print("Indeed: session active")
+            else:
+                print("Indeed: session expired")
+            return ok
+    except Exception as e:
+        print(f"Indeed check error: {e}")
+        return False
 
 
 async def main():
@@ -61,7 +67,7 @@ async def main():
     if li_ok and indeed_ok:
         send_telegram("✅ LinkedIn & Indeed ready — bot fully online!")
     elif li_ok:
-        send_telegram("✅ LinkedIn ready\n⚠️ Indeed login failed — run /login-indeed to fix")
+        send_telegram("✅ LinkedIn ready\n⚠️ Indeed session expired — run /ind\\_login to fix")
     elif indeed_ok:
         send_telegram("✅ Indeed ready\n⚠️ LinkedIn login failed — run /login to fix")
     else:

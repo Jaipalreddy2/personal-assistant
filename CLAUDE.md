@@ -4,41 +4,41 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-**Bunty** — a 24/7 personal AI assistant Telegram bot powered by Claude. It handles Gmail, Google Calendar, LinkedIn job search and Easy Apply automation, job application tracking, stock alerts, and free-form chat. Runs on Python 3.11, macOS-optimized (uses `caffeinate`, LaunchAgent for auto-start).
+**Bunty** — a 24/7 personal AI assistant Telegram bot powered by Claude. It handles Gmail, Google Calendar, LinkedIn job search and Easy Apply automation, job application tracking, stock alerts, and free-form chat. Runs on Python 3.11, Windows 11 (Task Scheduler for auto-start).
 
 ## Running the bot
 
-```bash
+```powershell
 # Foreground (testing)
-python3 bot_server.py
+python bot_server.py
 
 # Background (production)
-pkill -f bot_server.py; rm -f /tmp/akshay_bot.pid
-nohup python3 bot_server.py > assistant.log 2>&1 &
+Start-Process pythonw -ArgumentList "bot_server.py" -WindowStyle Hidden
 
 # Stop
-pkill -f bot_server.py && rm -f /tmp/akshay_bot.pid
+taskkill /F /IM pythonw.exe
+del $env:TEMP\akshay_bot.pid
 
 # Logs
-tail -f assistant.log   # bot_server output
-tail -f bot.log         # cron job output
+Get-Content assistant.log -Wait   # bot_server output
+Get-Content bot.log -Wait         # cron job output
 ```
 
 ## Install dependencies
 
-```bash
-pip3 install -r requirements.txt
-python3 -m playwright install chromium
+```powershell
+pip install -r requirements.txt
+python -m playwright install chromium
 ```
 
 ## One-time setup steps
 
-```bash
+```powershell
 # Get Telegram topic thread IDs
-python3 get_topic_ids.py
+python get_topic_ids.py
 
 # Google Calendar OAuth (generates token.json)
-python3 calendar_auth.py
+python calendar_auth.py
 ```
 
 ## Credentials
