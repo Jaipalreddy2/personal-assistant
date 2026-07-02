@@ -239,7 +239,8 @@ TOOLS = [
 
 
 NEXT_COMMANDS = {
-    "/findgraduate":   "Next: /applyjobs · /ind\\_apply · /mystatus",
+    "/findgraduate":      "Next: /applyjobs · /mystatus",
+    "/ind_findgraduate":  "Next: /ind\\_apply · /mystatus",
     "/findjobs":       "Next: /applyjobs · /autoapply · /mystatus",
     "/findfresher":    "Next: /applyjobs · /autoapply · /mystatus",
     "/findinternship": "Next: /applyjobs · /autoapply · /mystatus",
@@ -257,7 +258,7 @@ NEXT_COMMANDS = {
     "/mystatus":       "Next: /update · /findjobs · /findindeed",
     "/login":          "Next: /findjobs · /applyjobs",
     "/ind_login":      "Next: /findindeed · /ind\\_apply",
-    "/jobs":           "Next: /findjobs · /findgraduate · /findindeed",
+    "/jobs":           "Next: /findjobs · /findgraduate · /ind\\_findgraduate · /findindeed",
     "/emails":         "Next: /schedule · /digest",
     "/schedule":       "Next: /emails · /digest",
     "/stocks":         "Next: /digest · /schedule",
@@ -547,12 +548,20 @@ def handle_command(text):
                 stdout=log_file, stderr=log_file,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
+            return "🎓 Searching *LinkedIn* for Graduate jobs... results coming shortly."
+        except Exception as e:
+            return f"⚠️ Error: {e}"
+
+    if cmd == "/ind_findgraduate":
+        try:
+            python_exe = PYTHON.replace("pythonw.exe", "python.exe").replace("pythonw", "python")
+            log_file = open(BASE / "bot.log", "a")
             subprocess.Popen(
                 [python_exe, "-u", str(BASE / "indeed_jobs.py"), "findgraduate"],
                 stdout=log_file, stderr=log_file,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
-            return "🎓 Searching LinkedIn + Indeed for Graduate jobs simultaneously... results coming shortly."
+            return "🎓 Searching *Indeed* for Graduate jobs... results coming shortly."
         except Exception as e:
             return f"⚠️ Error: {e}"
 
@@ -743,7 +752,8 @@ def handle_command(text):
     if cmd == "/help":
         return (
             "🎓 *Graduate*\n"
-            "/findgraduate — graduate jobs on LinkedIn + Indeed\n\n"
+            "/findgraduate — graduate jobs on LinkedIn\n"
+            "/ind\\_findgraduate — graduate jobs on Indeed\n\n"
             "💼 *LinkedIn*\n"
             "/findjobs — all jobs\n"
             "/findfresher — entry level\n"
