@@ -178,6 +178,114 @@ async def tailor_for_job(job, session_file=None, page=None):
     return tailored
 
 
+def _resume_text_to_html(text: str) -> str:
+    """Convert Claude's plain-text tailored resume into a styled HTML page."""
+    import html as hl
+    lines = text.strip().split('\n')
+    out = []
+    in_ul = False
+    is_first_line = True
+
+    for raw in lines:
+        line = raw.rstrip()
+        stripped = line.strip()
+
+        if not stripped:
+            if in_ul:
+                out.append('</ul>')
+                in_ul = False
+            out.append('<div class="gap"></div>')
+            continue
+
+        # Close open bullet list before any non-bullet line
+        is_bullet = stripped.startswith(('•', '-', '*')) and len(stripped) > 2
+
+        if not is_bullet and in_ul:
+            out.append('</ul>')
+            in_ul = False
+
+        if is_first_line:
+            out.append(f'<div class="name">{hl.escape(stripped)}</div>')
+            is_first_line = False
+            continue
+
+        if is_bullet:
+            if not in_ul:
+                out.append('<ul>')
+                in_ul = True
+            content = hl.escape(stripped.lstrip('•-* ').strip())
+            out.append(f'<li>{content}</li>')
+            continue
+
+        # Section header: all-caps word(s), length > 3
+        if stripped == stripped.upper() and len(stripped) > 3 and stripped.replace(' ','').isalpha():
+            out.append(f'<h2>{hl.escape(stripped)}</h2>')
+            continue
+
+        # Contact / link lines near the top (contain | or @ or linkedin/github)
+        low = stripped.lower()
+        if '|' in stripped or '@' in stripped or 'linkedin' in low or 'github' in low:
+            out.append(f'<p class="contact">{hl.escape(stripped)}</p>')
+            continue
+
+        # Bold label lines: "Label: value" or "Label — value"
+        if ':' in stripped and stripped.index(':') < 35:
+            label, _, rest = stripped.partition(':')
+            out.append(f'<p><strong>{hl.escape(label)}:</strong>{hl.escape(rest)}</p>')
+            continue
+
+        out.append(f'<p>{hl.escape(stripped)}</p>')
+
+    if in_ul:
+        out.append('</ul>')
+
+    return f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+  body{{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000;margin:0;padding:14mm 15mm}}
+  .name{{font-size:22pt;font-weight:700;color:#2e74b5;margin-bottom:2px}}
+  .contact{{font-size:10.5pt;margin:1px 0;line-height:1.4}}
+  h2{{font-size:12pt;font-weight:700;color:#2e74b5;border-bottom:1px solid #2e74b5;
+      margin:9px 0 3px 0;padding-bottom:1px}}
+  p{{margin:2px 0;font-size:11pt;line-height:1.4}}
+  ul{{margin:3px 0 3px 20px}}
+  li{{font-size:11pt;line-height:1.5;margin-bottom:1px}}
+  .gap{{height:3px}}
+</style></head><body>{''.join(out)}</body></html>"""
+
+
+async def generate_tailored_pdf(tailored_text: str, output_path: str, context=None):
+    """Render the tailored resume text to a PDF file.
+    Re-uses an existing Playwright browser context if provided (avoids nested instances)."""
+    html_content = _resume_text_to_html(tailored_text)
+    close_browser = False
+
+    try:
+        if context is not None:
+            pg = await context.new_page()
+        else:
+            from playwright.async_api import async_playwright as _ap
+            _pw = await _ap().__aenter__()
+            browser = await _pw.chromium.launch()
+            context = await browser.new_context()
+            pg = await context.new_page()
+            close_browser = True
+
+        await pg.set_content(html_content, wait_until='load')
+        await pg.pdf(
+            path=output_path,
+            format='A4',
+            margin={'top': '0', 'bottom': '0', 'left': '0', 'right': '0'},
+            print_background=False,
+        )
+        await pg.close()
+        if close_browser:
+            await browser.close()
+        return True
+    except Exception as e:
+        print(f"  PDF generation error: {e}")
+        return False
+
+
 if __name__ == "__main__":
     import sys
     # Quick test

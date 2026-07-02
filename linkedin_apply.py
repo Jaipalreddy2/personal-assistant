@@ -519,10 +519,12 @@ async def dismiss_cookie_banner(page):
         pass
 
 
-async def _upload_resume_if_needed(page) -> bool:
+async def _upload_resume_if_needed(page, resume_path: str = None) -> bool:
     """Attach the PDF resume to a visible, empty file input in the Easy Apply modal.
+    Uses resume_path (tailored PDF) if provided, otherwise falls back to default.
     Returns True if the file was uploaded this call, False otherwise."""
-    if not RESUME_PDF.exists():
+    pdf_to_use = resume_path if resume_path and Path(resume_path).exists() else str(RESUME_PDF)
+    if not Path(pdf_to_use).exists():
         return False
     try:
         modal = await page.query_selector(
@@ -547,9 +549,9 @@ async def _upload_resume_if_needed(page) -> bool:
                 )
                 if has_file:
                     return False
-                await fi.set_input_files(str(RESUME_PDF))
+                await fi.set_input_files(pdf_to_use)
                 await page.wait_for_timeout(800)
-                print(f"  Uploaded resume: {RESUME_PDF.name}")
+                print(f"  Uploaded resume: {Path(pdf_to_use).name}")
                 return True
             except Exception:
                 continue
@@ -661,7 +663,7 @@ async def _fill_required_fields(page):
         print(f"  Field fill error: {e}")
 
 
-async def apply_to_job(page, job):
+async def apply_to_job(page, job, resume_path: str = None):
     """Apply to a single Easy Apply job. Returns (success, reason) tuple."""
     try:
         job_id = job["id"]
@@ -809,7 +811,7 @@ async def apply_to_job(page, job):
                     return False, f"External ATS error: {e}"
             return False, "Easy Apply modal did not open"
 
-        await _upload_resume_if_needed(page)
+        await _upload_resume_if_needed(page, resume_path)
 
         review_count     = 0
         disabled_count   = 0
@@ -820,7 +822,7 @@ async def apply_to_job(page, job):
         for step in range(35):
             await dismiss_cookie_banner(page)
             await page.wait_for_timeout(1200)
-            await _upload_resume_if_needed(page)
+            await _upload_resume_if_needed(page, resume_path)
             await _fill_required_fields(page)
             await page.wait_for_timeout(400)
 
@@ -1114,22 +1116,28 @@ async def apply_approved(from_find=False):
 
         applied = 0
         for job in approved:
-            # 1. Tailor resume silently — save to DB, no Telegram spam
+            # 1. Tailor resume + generate tailored PDF
+            tailored_pdf = None
             try:
-                from resume_tailor import tailor_for_job
+                import tempfile
+                from resume_tailor import tailor_for_job, generate_tailored_pdf
                 tailored = await tailor_for_job(job, page=page)
                 if tailored:
                     conn = sqlite3.connect(DB_PATH)
                     conn.execute("UPDATE jobs SET tailored_resume=? WHERE id=?", (tailored, job["id"]))
                     conn.commit()
                     conn.close()
-                    print(f"  Resume tailored for {job['title']}")
+                    tmp = Path(tempfile.gettempdir()) / f"resume_{job['id']}.pdf"
+                    ok = await generate_tailored_pdf(tailored, str(tmp), context=context)
+                    if ok:
+                        tailored_pdf = str(tmp)
+                        print(f"  Tailored PDF ready: {tmp.name}")
             except Exception as e:
                 print(f"  Resume tailor error: {e}")
 
-            # 2. Apply
+            # 2. Apply with tailored PDF
             try:
-                success, reason = await apply_to_job(page, job)
+                success, reason = await apply_to_job(page, job, resume_path=tailored_pdf)
                 status = "applied" if success else ("skipped" if reason.startswith("SKIP:") else "failed")
             except Exception as e:
                 reason = str(e)
@@ -1215,11 +1223,28 @@ async def auto_apply():
 
         send_telegram(f"💼 Found *{len(new_jobs)} new jobs* — applying now, no approval needed...")
 
-        # Phase 2: apply immediately using LinkedIn's default resume
+        # Phase 2: tailor resume + apply
         applied = 0
         for job in new_jobs:
+            tailored_pdf = None
             try:
-                success, reason = await apply_to_job(page, job)
+                import tempfile
+                from resume_tailor import tailor_for_job, generate_tailored_pdf
+                tailored = await tailor_for_job(job, page=page)
+                if tailored:
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.execute("UPDATE jobs SET tailored_resume=? WHERE id=?", (tailored, job["id"]))
+                    conn.commit()
+                    conn.close()
+                    tmp = Path(tempfile.gettempdir()) / f"resume_{job['id']}.pdf"
+                    ok = await generate_tailored_pdf(tailored, str(tmp), context=context)
+                    if ok:
+                        tailored_pdf = str(tmp)
+            except Exception as e:
+                print(f"  Resume tailor error: {e}")
+
+            try:
+                success, reason = await apply_to_job(page, job, resume_path=tailored_pdf)
                 status = "applied" if success else ("skipped" if reason.startswith("SKIP:") else "failed")
             except Exception as e:
                 reason = str(e)
@@ -1334,9 +1359,26 @@ async def apply_saved_jobs():
                 save_job(job)
             update_job_status(job["id"], "approved")
 
-            # Try Easy Apply
+            # Tailor resume + Easy Apply
+            tailored_pdf = None
             try:
-                success, reason = await apply_to_job(page, job)
+                import tempfile
+                from resume_tailor import tailor_for_job, generate_tailored_pdf
+                tailored = await tailor_for_job(job, page=page)
+                if tailored:
+                    conn2 = sqlite3.connect(DB_PATH)
+                    conn2.execute("UPDATE jobs SET tailored_resume=? WHERE id=?", (tailored, job["id"]))
+                    conn2.commit()
+                    conn2.close()
+                    tmp = Path(tempfile.gettempdir()) / f"resume_{job['id']}.pdf"
+                    ok = await generate_tailored_pdf(tailored, str(tmp), context=context)
+                    if ok:
+                        tailored_pdf = str(tmp)
+            except Exception as e:
+                print(f"  Resume tailor error: {e}")
+
+            try:
+                success, reason = await apply_to_job(page, job, resume_path=tailored_pdf)
             except Exception as e:
                 reason = str(e)
                 success = False

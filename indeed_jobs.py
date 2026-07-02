@@ -551,14 +551,15 @@ async def ensure_indeed_session(playwright, send_fn):
     return None, None
 
 
-async def _upload_resume(page):
-    if not RESUME_PDF.exists():
+async def _upload_resume(page, resume_path: str = None):
+    pdf_to_use = resume_path if resume_path and Path(resume_path).exists() else (str(RESUME_PDF) if RESUME_PDF.exists() else None)
+    if not pdf_to_use:
         return
     try:
         file_inputs = await page.query_selector_all("input[type='file']")
         for fi in file_inputs:
             try:
-                await fi.set_input_files(str(RESUME_PDF))
+                await fi.set_input_files(pdf_to_use)
                 await page.wait_for_timeout(1000)
                 print("  Uploaded resume")
                 return
@@ -568,7 +569,7 @@ async def _upload_resume(page):
         pass
 
 
-async def apply_to_indeed_job(page, job):
+async def apply_to_indeed_job(page, job, resume_path: str = None):
     """Navigate to job page and apply.
 
     "Apply with Indeed" jobs: fills Indeed SmartApply form (requires login).
@@ -626,8 +627,8 @@ async def apply_to_indeed_job(page, job):
             pass
         await page.wait_for_timeout(2000)
 
-        # Upload resume
-        await _upload_resume(page)
+        # Upload resume (tailored PDF if available, else static)
+        await _upload_resume(page, resume_path)
 
         # Fill common form fields across SmartApply pages
         async def fill_fields():
@@ -754,8 +755,25 @@ async def apply_approved():
         applied = 0
         for job in approved:
             is_easy = job.get("notes", "") == "easy_apply"
+            tailored_pdf = None
             try:
-                success, reason = await apply_to_indeed_job(page, job)
+                import tempfile
+                from resume_tailor import tailor_for_job, generate_tailored_pdf
+                tailored = await tailor_for_job(job, page=page)
+                if tailored:
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.execute("UPDATE jobs SET tailored_resume=? WHERE id=?", (tailored, job["id"]))
+                    conn.commit()
+                    conn.close()
+                    tmp = Path(tempfile.gettempdir()) / f"resume_{job['id']}.pdf"
+                    ok = await generate_tailored_pdf(tailored, str(tmp), context=context)
+                    if ok:
+                        tailored_pdf = str(tmp)
+            except Exception as e:
+                print(f"  Resume tailor error: {e}")
+
+            try:
+                success, reason = await apply_to_indeed_job(page, job, resume_path=tailored_pdf)
                 status  = "applied" if success else "failed"
             except Exception as e:
                 reason  = str(e)
@@ -900,8 +918,25 @@ async def auto_apply_indeed():
 
         applied = 0
         for job in all_new:
+            tailored_pdf = None
             try:
-                success, reason = await apply_to_indeed_job(page, job)
+                import tempfile
+                from resume_tailor import tailor_for_job, generate_tailored_pdf
+                tailored = await tailor_for_job(job, page=page)
+                if tailored:
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.execute("UPDATE jobs SET tailored_resume=? WHERE id=?", (tailored, job["id"]))
+                    conn.commit()
+                    conn.close()
+                    tmp = Path(tempfile.gettempdir()) / f"resume_{job['id']}.pdf"
+                    ok = await generate_tailored_pdf(tailored, str(tmp), context=context)
+                    if ok:
+                        tailored_pdf = str(tmp)
+            except Exception as e:
+                print(f"  Resume tailor error: {e}")
+
+            try:
+                success, reason = await apply_to_indeed_job(page, job, resume_path=tailored_pdf)
                 status = "applied" if success else "failed"
             except Exception as e:
                 reason = str(e)
@@ -975,8 +1010,25 @@ async def apply_indeed_saved():
                     save_job(job)
                     update_job_status(job["id"], "approved")
 
+                tailored_pdf = None
                 try:
-                    success, reason = await apply_to_indeed_job(page, job)
+                    import tempfile
+                    from resume_tailor import tailor_for_job, generate_tailored_pdf
+                    tailored = await tailor_for_job(job, page=page)
+                    if tailored:
+                        conn = sqlite3.connect(DB_PATH)
+                        conn.execute("UPDATE jobs SET tailored_resume=? WHERE id=?", (tailored, job["id"]))
+                        conn.commit()
+                        conn.close()
+                        tmp = Path(tempfile.gettempdir()) / f"resume_{job['id']}.pdf"
+                        ok = await generate_tailored_pdf(tailored, str(tmp), context=context)
+                        if ok:
+                            tailored_pdf = str(tmp)
+                except Exception as e:
+                    print(f"  Resume tailor error: {e}")
+
+                try:
+                    success, reason = await apply_to_indeed_job(page, job, resume_path=tailored_pdf)
                     status = "applied" if success else "failed"
                 except Exception as e:
                     reason = str(e)
