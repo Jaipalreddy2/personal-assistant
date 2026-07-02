@@ -680,6 +680,7 @@ async def apply_to_job(page, job, resume_path: str = None):
         ]
 
         nav_ok = False
+        session_expired = False
         for nav_url in urls_to_try:
             for attempt in range(2):
                 try:
@@ -689,10 +690,13 @@ async def apply_to_job(page, job, resume_path: str = None):
                 except Exception as nav_err:
                     err_str = str(nav_err)
                     print(f"  Nav error (attempt {attempt+1}): {err_str[:120]}")
-                    # Redirect loop — no point retrying same URL
+                    # Redirect loop means session expired — no point retrying any URL
                     if "ERR_TOO_MANY_REDIRECTS" in err_str:
+                        session_expired = True
                         break
                     await page.wait_for_timeout(8000)
+            if session_expired:
+                break
             if nav_ok:
                 # Wait for the job-specific apply button to appear in the detail panel
                 # (the panel loads async after domcontentloaded)
@@ -706,6 +710,10 @@ async def apply_to_job(page, job, resume_path: str = None):
                     # Button didn't appear — try next URL
                     nav_ok = False
                     continue
+
+        if session_expired:
+            print(f"  Session expired navigating to {job['title']}")
+            return False, "FAILED: session expired"
 
         if not nav_ok:
             print(f"  Nav failed: {job['title']}")
@@ -1154,6 +1162,24 @@ async def apply_approved(from_find=False):
                 reason = str(e)
                 status = "failed"
                 success = False
+
+            # Session expired — reset this job and all remaining ones, then abort
+            if reason == "FAILED: session expired":
+                remaining_ids = [j["id"] for j in approved[approved.index(job):]]
+                conn = sqlite3.connect(DB_PATH)
+                conn.execute(
+                    f"UPDATE jobs SET status='approved' WHERE id IN ({','.join('?' * len(remaining_ids))})",
+                    remaining_ids
+                )
+                conn.commit()
+                conn.close()
+                send_telegram(
+                    "⚠️ LinkedIn session expired mid-apply.\n"
+                    f"Reset {len(remaining_ids)} job(s) back to approved.\n"
+                    "Run `python fresh_login.py` then `/applyjobs` to retry."
+                )
+                break
+
             update_job_status(job["id"], status)
 
             if success:
