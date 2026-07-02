@@ -667,9 +667,10 @@ async def apply_to_job(page, job, resume_path: str = None):
     """Apply to a single Easy Apply job. Returns (success, reason) tuple."""
     try:
         job_id = job["id"]
+        # jobs/view/ is direct and reliable; jobs/search/?currentJobId= causes redirect loops
         urls_to_try = [
-            f"https://www.linkedin.com/jobs/search/?currentJobId={job_id}",
             f"https://www.linkedin.com/jobs/view/{job_id}/",
+            f"https://www.linkedin.com/jobs/search/?currentJobId={job_id}",
         ]
 
         nav_ok = False
@@ -680,7 +681,11 @@ async def apply_to_job(page, job, resume_path: str = None):
                     nav_ok = True
                     break
                 except Exception as nav_err:
-                    print(f"  Nav error: {nav_err}")
+                    err_str = str(nav_err)
+                    print(f"  Nav error (attempt {attempt+1}): {err_str[:120]}")
+                    # Redirect loop — no point retrying same URL
+                    if "ERR_TOO_MANY_REDIRECTS" in err_str:
+                        break
                     await page.wait_for_timeout(8000)
             if nav_ok:
                 # Wait for the job-specific apply button to appear in the detail panel
