@@ -20,43 +20,68 @@ _BSC          = config.get("DEGREE_BSC", "")
 _MSC          = config.get("DEGREE_MSC", "")
 
 RESUME = f"""
-Jaipal Kasi Reddy
+Jaipal Kasireddy
 kasireddyjaipal02@gmail.com | {_PHONE} | Dublin, Ireland
 linkedin.com/in/jaipal-kasireddy-375a5227b | github.com/Jaipalreddy2
+DevOps / Cloud Engineer
 
-PROFILE
-MSc Cloud Computing student at National College of Ireland (NCI), Dublin. Passionate about
-building scalable, reliable, and secure cloud infrastructure. Seeking graduate and internship
-roles in Cloud Engineering, DevOps, and Software Development. Available for part-time work
-during studies and full-time from February 2027.
+PROFESSIONAL SUMMARY
+Cloud Computing MSc student at National College of Ireland (NCI), Dublin, with hands-on
+experience in DevOps engineering, AWS cloud deployments, Docker, Kubernetes, CI/CD
+automation, and Python development. Currently delivering cloud-native projects involving
+containerised microservices, Infrastructure-as-Code using Terraform, and automated deployment
+pipelines. Strong understanding of cloud architecture fundamentals and Agile delivery models.
+Actively seeking internship, part-time, and graduate opportunities in Cloud Engineering and
+DevOps in Dublin. Available for part-time / internship now; full-time from February 2027.
+
+TECHNICAL SKILLS
+Programming Languages : Python, Bash, SQL
+Cloud Platforms       : AWS (EC2, S3, IAM, CloudFormation, CloudWatch)
+Containers & Orch.    : Docker, Kubernetes
+CI/CD & Automation    : GitHub Actions, Jenkins
+Infrastructure as Code: Terraform, YAML
+Web & APIs            : RESTful APIs, HTML, CSS, JavaScript
+Databases             : SQL, PostgreSQL
+Monitoring & Logging  : Prometheus, Grafana
+Version Control       : Git, GitHub
+Operating Systems     : Linux, Windows
+IDE / Tools           : VS Code, Postman
+
+PROFESSIONAL EXPERIENCE
+
+National College of Ireland (NCI), Dublin                          Sep 2025 – Present
+Graduate Programme Projects — MSc Cloud Computing
+Project Description: Designed and implemented cloud-native applications as part of MSc
+coursework, focusing on containerisation, CI/CD automation, and AWS-based deployments.
+Responsibilities:
+• Developed and deployed cloud-hosted services using AWS (EC2, S3, IAM, CloudFormation).
+• Built and managed Docker containers and Kubernetes deployments for microservice workloads.
+• Designed automated GitHub Actions pipelines for build, test, and deployment workflows.
+• Provisioned infrastructure using Terraform and Kubernetes YAML manifests.
+• Implemented monitoring and logging for containers using Prometheus and Grafana.
+Environment: AWS, Docker, Kubernetes, GitHub Actions, Terraform, Python, Linux, YAML
+
+PROJECTS
+
+Personal AI Assistant — Telegram Bot                               github.com/Jaipalreddy2/personal-assistant
+Tech: Python, Claude AI API, Playwright, Telegram Bot API, Gmail IMAP, Google Calendar API, SQLite
+• Built a 24/7 personal assistant Telegram bot powered by Claude AI handling natural-language
+  requests, Gmail monitoring, Google Calendar management, and LinkedIn job automation.
+• Engineered an automated LinkedIn Easy Apply pipeline using Playwright that searches, filters,
+  and applies to 60+ graduate/DevOps roles in Dublin with AI-tailored resumes per job.
+• Integrated Gmail IMAP for real-time email alerts and Google Calendar OAuth for scheduling.
+• Deployed on Windows with persistent background process management and auto-restart on boot.
+
+CI/CD Pipeline — Python App Deployment to AWS EC2                  github.com/Jaipalreddy2/cicd_project1
+Tech: GitHub Actions, AWS EC2, Python, Gunicorn, SSH, Git, Linux
+• Implemented a fully automated GitHub Actions CI/CD pipeline triggered on every push to main.
+• Pipeline SSHs into an AWS EC2 instance, pulls the latest code, installs dependencies via pip,
+  and restarts the Gunicorn application server using systemctl — zero manual deployment steps.
+• Used GitHub Secrets for secure SSH key and host management, eliminating password-based access.
 
 EDUCATION
 {_MSC}
 {_BSC}
-
-PROJECTS
-Personal AI Assistant Bot  (Python · Telegram · Playwright · Claude AI · LinkedIn API)
-• Automated LinkedIn Easy Apply pipeline: searches 60+ DevOps/Cloud roles and auto-applies to
-  fresher and graduate positions in Dublin
-• Integrated Gmail IMAP, Google Calendar, and Telegram Bot API for a 24/7 personal assistant
-• Resume tailoring module uses Claude AI to rewrite bullet points matching each job description
-• Deployed on Windows with auto-start via Startup folder and PYTHONUTF8 compatibility fixes
-
-TODO: Add university projects (e.g. Cloud deployment project, Kubernetes lab, etc.)
-
-TECHNICAL SKILLS
-Cloud:      AWS (EC2, S3, IAM, CloudFormation — actively learning)
-DevOps:     Docker, Kubernetes, CI/CD Pipelines (GitHub Actions)
-OS:         Linux (command line, Bash scripting)
-Programming: Python, SQL
-Tools:      Git, GitHub
-
-CERTIFICATIONS
-TODO: Add AWS Cloud Practitioner, CKA, or other certs if completed
-
-INTERESTS / OPEN TO
-Cloud Engineer | DevOps Engineer | Graduate Programme | Platform Engineer | IT Systems
-Dublin on-site · Hybrid · Remote
 """
 
 

@@ -635,7 +635,7 @@ async def apply_to_indeed_job(page, job):
                 for sel in ["input[name='name']", "input[autocomplete='name']", "input[placeholder*='name' i]"]:
                     el = await page.query_selector(sel)
                     if el and not await el.input_value():
-                        await el.fill("Jaipal Kasi Reddy")
+                        await el.fill("Jaipal Kasireddy")
                         break
             except Exception:
                 pass

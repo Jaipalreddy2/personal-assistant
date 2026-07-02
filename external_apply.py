@@ -17,7 +17,7 @@ RESUME_PDF = Path(__file__).parent / "Jaipal_Kasi_Reddy_Resume.pdf"
 INFO = {
     "first":    "Jaipal",
     "last":     "Kasi Reddy",
-    "name":     "Jaipal Kasi Reddy",
+    "name":     "Jaipal Kasireddy",
     "email":    config.get("GMAIL_ADDRESS", "kasireddyjaipal02@gmail.com"),
     "phone":    config.get("PHONE", "+353870042809").replace(" ", ""),
     "linkedin": "https://www.linkedin.com/in/jaipal-kasireddy-375a5227b",
@@ -42,7 +42,7 @@ COVER_LETTER = (
     "I am eligible to work in Ireland on a student visa (20 hrs/week during term, full-time during breaks).\n\n"
     "I look forward to discussing how my skills can contribute to your team.\n\n"
     "Best regards,\n"
-    "Jaipal Kasi Reddy\n"
+    "Jaipal Kasireddy\n"
     "{phone} | kasireddyjaipal02@gmail.com\n"
     "Dublin, Ireland | linkedin.com/in/jaipal-kasireddy-375a5227b"
 )

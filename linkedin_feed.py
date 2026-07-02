@@ -186,7 +186,7 @@ def generate_comment(post):
         messages=[{
             "role": "user",
             "content": f"""Write a short, genuine LinkedIn comment (2-3 sentences) for this post.
-The commenter is Jaipal Kasi Reddy, an MSc Cloud Computing student at National College of Ireland,
+The commenter is Jaipal Kasireddy, an MSc Cloud Computing student at National College of Ireland,
 Dublin, with hands-on experience in AWS, Docker, Kubernetes, CI/CD pipelines, and Python automation.
 Be specific to the post content. Add real value or a relevant insight. Sound human and enthusiastic.
 Do NOT start with "Great post!" or "Excellent!" — be direct and thoughtful.

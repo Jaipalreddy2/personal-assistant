@@ -470,7 +470,7 @@ def build_html():
 </div><!-- /body -->
 
 <div class="footer">
-  Jaipal Kasi Reddy &nbsp;|&nbsp; kasireddyjaipal02@gmail.com &nbsp;|&nbsp; Dublin, Ireland &nbsp;|&nbsp; linkedin.com/in/jaipal-kasireddy-375a5227b
+  Jaipal Kasireddy &nbsp;|&nbsp; kasireddyjaipal02@gmail.com &nbsp;|&nbsp; Dublin, Ireland &nbsp;|&nbsp; linkedin.com/in/jaipal-kasireddy-375a5227b
 </div>
 
 </body>

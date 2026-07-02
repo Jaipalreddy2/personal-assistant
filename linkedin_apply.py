@@ -610,7 +610,7 @@ async def _fill_required_fields(page):
                 else if (l.includes('last') && l.includes('name'))
                     react_set(inp, 'Kasi Reddy');
                 else if ((l.includes('full') && l.includes('name')) || l.includes('your name'))
-                    react_set(inp, 'Jaipal Kasi Reddy');
+                    react_set(inp, 'Jaipal Kasireddy');
                 else if (l.includes('linkedin') || l.includes('profile url'))
                     react_set(inp, 'https://www.linkedin.com/in/jaipal-kasireddy-375a5227b');
                 else if (l.includes('github') || l.includes('portfolio') || l.includes('website'))

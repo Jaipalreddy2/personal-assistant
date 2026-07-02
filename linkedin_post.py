@@ -82,7 +82,7 @@ def generate_post_with_claude(topic):
         max_tokens=512,
         messages=[{
             "role": "user",
-            "content": f"""Write a professional LinkedIn post for Jaipal Kasi Reddy, an MSc Cloud Computing
+            "content": f"""Write a professional LinkedIn post for Jaipal Kasireddy, an MSc Cloud Computing
 student at National College of Ireland, Dublin. He specialises in AWS, Docker, Kubernetes,
 CI/CD pipelines (GitHub Actions), Python, and Linux. He's actively seeking graduate and
 internship roles in Cloud Engineering and DevOps.
