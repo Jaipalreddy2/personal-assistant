@@ -594,9 +594,15 @@ async def _fill_required_fields(page):
                 el.dispatchEvent(new Event('blur',   {{bubbles:true}}));
             }}
 
+            // ── Always overwrite email — LinkedIn pre-fills from profile ────
+            for (const inp of modal.querySelectorAll('input[type="email"]')) {{
+                if (inp.offsetParent === null) continue;
+                react_set(inp, email);
+            }}
+
             // ── Text / tel / number inputs ──────────────────────────────────
             for (const inp of modal.querySelectorAll(
-                'input[type="text"],input[type="tel"],input[type="number"],input[type="email"],input:not([type])'
+                'input[type="text"],input[type="tel"],input[type="number"],input:not([type])'
             )) {{
                 if (inp.offsetParent === null) continue;
                 if (inp.value?.trim()) continue;

@@ -651,8 +651,8 @@ async def apply_to_indeed_job(page, job, resume_path: str = None):
             try:
                 for sel in ["input[type='email']", "input[name*='email']"]:
                     el = await page.query_selector(sel)
-                    if el and not await el.input_value():
-                        await el.fill(INDEED_EMAIL)
+                    if el:
+                        await el.fill(INDEED_EMAIL)  # always overwrite pre-filled email
                         break
             except Exception:
                 pass
