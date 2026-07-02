@@ -238,6 +238,34 @@ TOOLS = [
 ]
 
 
+NEXT_COMMANDS = {
+    "/findgraduate":   "Next: /applyjobs · /ind\\_apply · /mystatus",
+    "/findjobs":       "Next: /applyjobs · /autoapply · /mystatus",
+    "/findfresher":    "Next: /applyjobs · /autoapply · /mystatus",
+    "/findinternship": "Next: /applyjobs · /autoapply · /mystatus",
+    "/findindeed":     "Next: /ind\\_apply · /ind\\_autoapply · /mystatus",
+    "/ind_fresher":    "Next: /ind\\_apply · /ind\\_autoapply · /mystatus",
+    "/ind_intern":     "Next: /ind\\_apply · /ind\\_autoapply · /mystatus",
+    "/applyjobs":      "Next: /mystatus · /resetfailed",
+    "/autoapply":      "Next: /mystatus · /resetfailed",
+    "/savedjobs":      "Next: /mystatus · /resetfailed",
+    "/ind_apply":      "Next: /mystatus · /resetfailed",
+    "/ind_autoapply":  "Next: /mystatus · /resetfailed",
+    "/ind_savedjobs":  "Next: /mystatus · /resetfailed",
+    "/ind_approveall": "Next: /ind\\_apply",
+    "/resetfailed":    "Next: /applyjobs",
+    "/mystatus":       "Next: /update · /findjobs · /findindeed",
+    "/login":          "Next: /findjobs · /applyjobs",
+    "/ind_login":      "Next: /findindeed · /ind\\_apply",
+    "/jobs":           "Next: /findjobs · /findgraduate · /findindeed",
+    "/emails":         "Next: /schedule · /digest",
+    "/schedule":       "Next: /emails · /digest",
+    "/stocks":         "Next: /digest · /schedule",
+    "/digest":         "Next: /stocks · /schedule · /emails",
+    "/feed":           "Next: /post",
+}
+
+
 def execute_tool(name, params):
     """Run a tool and return a string result."""
     try:
@@ -893,6 +921,9 @@ def run():
                 if text.startswith("/"):
                     reply = handle_command(text)
                     if reply:
+                        hint = NEXT_COMMANDS.get(text.lower().split()[0])
+                        if hint:
+                            reply = reply + f"\n\n_{hint}_"
                         send_message(reply, thread_id=thread_id)
                         continue
 
