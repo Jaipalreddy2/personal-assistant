@@ -216,14 +216,17 @@ def save_job(job):
     conn.close()
 
 
-def update_job_status(job_id, status):
+def update_job_status(job_id, status, notes=None):
     conn = sqlite3.connect(DB_PATH)
-    # Only advance stage to 'applied' on confirmed success
-    # For failed/skipped/approved, keep stage as-is so tracker stays clean
     if status == "applied":
         conn.execute(
             "UPDATE jobs SET status=?, stage=?, applied_at=? WHERE id=?",
             (status, "applied", datetime.now().isoformat(), job_id)
+        )
+    elif notes:
+        conn.execute(
+            "UPDATE jobs SET status=?, applied_at=?, notes=? WHERE id=?",
+            (status, datetime.now().isoformat(), notes, job_id)
         )
     else:
         conn.execute(
@@ -701,13 +704,16 @@ async def apply_to_job(page, job, resume_path: str = None):
                 # Wait for the job-specific apply button to appear in the detail panel
                 # (the panel loads async after domcontentloaded)
                 try:
+                    # Only match Easy Apply buttons — button.jobs-apply-button without
+                    # the aria-label guard also matches plain "Apply" (external) buttons
                     await page.wait_for_selector(
-                        "button[aria-label*='Easy Apply to'], a[aria-label*='Easy Apply to'], button.jobs-apply-button",
+                        "button[aria-label*='Easy Apply to'], a[aria-label*='Easy Apply to'], "
+                        "button.jobs-apply-button[aria-label*='Easy Apply']",
                         timeout=8000
                     )
-                    break  # job detail panel loaded with apply button
+                    break  # job detail panel loaded with Easy Apply button
                 except Exception:
-                    # Button didn't appear — try next URL
+                    # Button didn't appear — not an Easy Apply job, try next URL
                     nav_ok = False
                     continue
 
@@ -792,8 +798,8 @@ async def apply_to_job(page, job, resume_path: str = None):
                 except Exception as e:
                     print(f"  External apply error: {e}")
                     return False, f"External site error: {e}"
-            print(f"  No apply button found for {job['title']}")
-            return False, "No Easy Apply button — job requires applying on company site"
+            print(f"  No Easy Apply button: {job['title']} — external application only")
+            return False, "SKIP: No Easy Apply button — apply via company site"
 
         print(f"  Easy Apply found: {job['title']} @ {job['company']}")
 
@@ -1180,7 +1186,7 @@ async def apply_approved(from_find=False):
                 )
                 break
 
-            update_job_status(job["id"], status)
+            update_job_status(job["id"], status, notes=reason if not success else None)
 
             if success:
                 applied += 1
@@ -1287,7 +1293,7 @@ async def auto_apply():
                 reason = str(e)
                 status = "failed"
                 success = False
-            update_job_status(job["id"], status)
+            update_job_status(job["id"], status, notes=reason if not success else None)
 
             if success:
                 applied += 1
@@ -1507,7 +1513,7 @@ async def login_then_apply():
                 reason = str(e)
                 status = "failed"
                 success = False
-            update_job_status(job["id"], status)
+            update_job_status(job["id"], status, notes=reason if not success else None)
 
             if success:
                 applied += 1

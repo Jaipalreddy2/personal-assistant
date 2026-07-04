@@ -60,8 +60,8 @@ async def main():
             except Exception as e:
                 success, reason = False, str(e)
 
-            status = "applied" if success else "failed"
-            update_job_status(job["id"], status)
+            status = "applied" if success else ("skipped" if reason.startswith("SKIP:") else "failed")
+            update_job_status(job["id"], status, notes=reason if not success else None)
 
             if success:
                 applied += 1
